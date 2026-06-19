@@ -4,13 +4,14 @@
 package provider
 
 type sandboxCreateRequest struct {
-	TemplateID           string            `json:"templateID"`
-	Timeout              *int64            `json:"timeout,omitempty"`
-	AutoPause            *bool             `json:"autoPause,omitempty"`
-	Secure               *bool             `json:"secure,omitempty"`
-	AllowInternetAccess  *bool             `json:"allow_internet_access,omitempty"`
-	Metadata             map[string]string `json:"metadata,omitempty"`
-	EnvironmentVariables map[string]string `json:"envVars,omitempty"`
+	TemplateID           string                `json:"templateID"`
+	Timeout              *int64                `json:"timeout,omitempty"`
+	AutoPause            *bool                 `json:"autoPause,omitempty"`
+	Secure               *bool                 `json:"secure,omitempty"`
+	AllowInternetAccess  *bool                 `json:"allow_internet_access,omitempty"`
+	Network              *sandboxNetworkConfig `json:"network,omitempty"`
+	Metadata             map[string]string     `json:"metadata,omitempty"`
+	EnvironmentVariables map[string]string     `json:"envVars,omitempty"`
 }
 
 type sandboxResponse struct {
@@ -24,21 +25,22 @@ type sandboxResponse struct {
 }
 
 type sandboxDetailResponse struct {
-	TemplateID          string            `json:"templateID"`
-	SandboxID           string            `json:"sandboxID"`
-	Alias               string            `json:"alias"`
-	ClientID            string            `json:"clientID"`
-	StartedAt           string            `json:"startedAt"`
-	EndAt               string            `json:"endAt"`
-	EnvdVersion         string            `json:"envdVersion"`
-	EnvdAccessToken     *string           `json:"envdAccessToken"`
-	TrafficAccessToken  *string           `json:"trafficAccessToken"`
-	AllowInternetAccess *bool             `json:"allowInternetAccess"`
-	CPUCount            *int64            `json:"cpuCount"`
-	MemoryMB            *int64            `json:"memoryMB"`
-	DiskSizeMB          *int64            `json:"diskSizeMB"`
-	Metadata            map[string]string `json:"metadata"`
-	State               string            `json:"state"`
+	TemplateID          string                `json:"templateID"`
+	SandboxID           string                `json:"sandboxID"`
+	Alias               string                `json:"alias"`
+	ClientID            string                `json:"clientID"`
+	StartedAt           string                `json:"startedAt"`
+	EndAt               string                `json:"endAt"`
+	EnvdVersion         string                `json:"envdVersion"`
+	EnvdAccessToken     *string               `json:"envdAccessToken"`
+	TrafficAccessToken  *string               `json:"trafficAccessToken"`
+	AllowInternetAccess *bool                 `json:"allowInternetAccess"`
+	CPUCount            *int64                `json:"cpuCount"`
+	MemoryMB            *int64                `json:"memoryMB"`
+	DiskSizeMB          *int64                `json:"diskSizeMB"`
+	Metadata            map[string]string     `json:"metadata"`
+	State               string                `json:"state"`
+	Network             *sandboxNetworkConfig `json:"network"`
 }
 
 type listedSandboxResponse struct {
@@ -54,6 +56,11 @@ type listedSandboxResponse struct {
 	Metadata    map[string]string `json:"metadata"`
 	State       string            `json:"state"`
 	EnvdVersion string            `json:"envdVersion"`
+}
+
+type sandboxNetworkConfig struct {
+	AllowOut []string `json:"allowOut,omitempty"`
+	DenyOut  []string `json:"denyOut,omitempty"`
 }
 
 type volumeRequest struct {

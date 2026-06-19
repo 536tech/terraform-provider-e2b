@@ -37,6 +37,8 @@ data "e2b_sandbox" "example" {
 - `envd_version` (String) Version of envd running in the sandbox.
 - `memory_mb` (Number) Memory allocated to the sandbox, in MB.
 - `metadata` (Map of String) Sandbox metadata.
+- `network_allow_out` (Set of String) Destinations that sandbox egress traffic is allowed to reach.
+- `network_deny_out` (Set of String) CIDR blocks, IP addresses, or `ALL_TRAFFIC` entries that sandbox egress traffic is denied from reaching.
 - `started_at` (String) Timestamp when the sandbox started.
 - `state` (String) Sandbox state.
 - `template_id` (String) Template ID used to create the sandbox.

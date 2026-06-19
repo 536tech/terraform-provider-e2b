@@ -43,6 +43,8 @@ type SandboxDataSourceModel struct {
 	MemoryMB            types.Int64  `tfsdk:"memory_mb"`
 	DiskSizeMB          types.Int64  `tfsdk:"disk_size_mb"`
 	Metadata            types.Map    `tfsdk:"metadata"`
+	NetworkAllowOut     types.Set    `tfsdk:"network_allow_out"`
+	NetworkDenyOut      types.Set    `tfsdk:"network_deny_out"`
 	State               types.String `tfsdk:"state"`
 }
 
@@ -232,6 +234,20 @@ func (m *SandboxDataSourceModel) applySandboxDetail(ctx context.Context, detail 
 	diags.Append(mapDiags...)
 	m.Metadata = metadata
 
+	if detail.Network == nil {
+		m.NetworkAllowOut = types.SetNull(types.StringType)
+		m.NetworkDenyOut = types.SetNull(types.StringType)
+		return diags
+	}
+
+	allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
+	diags.Append(setDiags...)
+	m.NetworkAllowOut = allowOut
+
+	denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
+	diags.Append(setDiags...)
+	m.NetworkDenyOut = denyOut
+
 	return diags
 }
 
@@ -283,6 +299,16 @@ func sandboxDetailAttributes(idRequired bool) map[string]schema.Attribute {
 	}
 	attributes["allow_internet_access"] = schema.BoolAttribute{
 		MarkdownDescription: "Whether internet access was explicitly enabled or disabled for the sandbox.",
+		Computed:            true,
+	}
+	attributes["network_allow_out"] = schema.SetAttribute{
+		MarkdownDescription: "Destinations that sandbox egress traffic is allowed to reach.",
+		ElementType:         types.StringType,
+		Computed:            true,
+	}
+	attributes["network_deny_out"] = schema.SetAttribute{
+		MarkdownDescription: "CIDR blocks, IP addresses, or `ALL_TRAFFIC` entries that sandbox egress traffic is denied from reaching.",
+		ElementType:         types.StringType,
 		Computed:            true,
 	}
 

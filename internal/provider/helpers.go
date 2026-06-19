@@ -81,6 +81,10 @@ func listStringValue(ctx context.Context, values []string) (types.List, diag.Dia
 	return types.ListValueFrom(ctx, types.StringType, values)
 }
 
+func setStringValue(ctx context.Context, values []string) (types.Set, diag.Diagnostics) {
+	return types.SetValueFrom(ctx, types.StringType, values)
+}
+
 func stringSetFromTerraform(ctx context.Context, value types.Set) ([]string, diag.Diagnostics) {
 	if value.IsNull() || value.IsUnknown() {
 		return nil, nil

@@ -66,6 +66,80 @@ func TestClientCreateSandbox(t *testing.T) {
 	}
 }
 
+func TestClientUpdateSandboxNetwork(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sandboxes/sbx_123/network" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+
+		var gotRequest sandboxNetworkConfig
+		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
+			t.Fatalf("decode request: %s", err)
+		}
+
+		if len(gotRequest.AllowOut) != 1 || gotRequest.AllowOut[0] != "8.8.8.8/32" {
+			t.Fatalf("unexpected allow out: %#v", gotRequest.AllowOut)
+		}
+		if len(gotRequest.DenyOut) != 1 || gotRequest.DenyOut[0] != "203.0.113.0/24" {
+			t.Fatalf("unexpected deny out: %#v", gotRequest.DenyOut)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := newE2BClient(server.URL, "test-key", "test")
+	if err != nil {
+		t.Fatalf("new client: %s", err)
+	}
+
+	err = client.updateSandboxNetwork(context.Background(), "sbx_123", sandboxNetworkConfig{
+		AllowOut: []string{"8.8.8.8/32"},
+		DenyOut:  []string{"203.0.113.0/24"},
+	})
+	if err != nil {
+		t.Fatalf("update sandbox network: %s", err)
+	}
+}
+
+func TestClientSetSandboxTimeout(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sandboxes/sbx_123/timeout" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+
+		var gotRequest map[string]int64
+		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
+			t.Fatalf("decode request: %s", err)
+		}
+		if gotRequest["timeout"] != 120 {
+			t.Fatalf("unexpected timeout: %#v", gotRequest)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := newE2BClient(server.URL, "test-key", "test")
+	if err != nil {
+		t.Fatalf("new client: %s", err)
+	}
+
+	if err := client.setSandboxTimeout(context.Background(), "sbx_123", 120); err != nil {
+		t.Fatalf("set sandbox timeout: %s", err)
+	}
+}
+
 func TestClientListSandboxesEncodesFilters(t *testing.T) {
 	t.Parallel()
 

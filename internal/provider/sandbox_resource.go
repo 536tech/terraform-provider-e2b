@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -37,6 +36,8 @@ type SandboxResourceModel struct {
 	AutoPause           types.Bool   `tfsdk:"auto_pause"`
 	Secure              types.Bool   `tfsdk:"secure"`
 	AllowInternetAccess types.Bool   `tfsdk:"allow_internet_access"`
+	NetworkAllowOut     types.Set    `tfsdk:"network_allow_out"`
+	NetworkDenyOut      types.Set    `tfsdk:"network_deny_out"`
 	Metadata            types.Map    `tfsdk:"metadata"`
 	EnvVars             types.Map    `tfsdk:"env_vars"`
 	Alias               types.String `tfsdk:"alias"`
@@ -77,9 +78,6 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 			"timeout": schema.Int64Attribute{
 				MarkdownDescription: "Sandbox time to live in seconds.",
 				Optional:            true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.RequiresReplace(),
-				},
 			},
 			"auto_pause": schema.BoolAttribute{
 				MarkdownDescription: "Whether the sandbox should pause instead of being killed when the timeout is reached.",
@@ -101,6 +99,16 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.RequiresReplace(),
 				},
+			},
+			"network_allow_out": schema.SetAttribute{
+				MarkdownDescription: "Destinations that sandbox egress traffic is allowed to reach. Entries can be CIDR blocks, IP addresses, or domain names. When allowing domains, E2B requires `network_deny_out` to include `ALL_TRAFFIC`.",
+				ElementType:         types.StringType,
+				Optional:            true,
+			},
+			"network_deny_out": schema.SetAttribute{
+				MarkdownDescription: "CIDR blocks or IP addresses that sandbox egress traffic is denied from reaching. Use `ALL_TRAFFIC` when pairing domain allow rules with a default-deny policy.",
+				ElementType:         types.StringType,
+				Optional:            true,
 			},
 			"metadata": schema.MapAttribute{
 				MarkdownDescription: "Metadata assigned to the sandbox.",
@@ -197,6 +205,8 @@ func (r *SandboxResource) Create(ctx context.Context, req resource.CreateRequest
 	resp.Diagnostics.Append(diags...)
 	envVars, diags := mapStringFromTerraform(ctx, data.EnvVars)
 	resp.Diagnostics.Append(diags...)
+	network, diags := data.sandboxNetworkConfig(ctx, false)
+	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -207,6 +217,7 @@ func (r *SandboxResource) Create(ctx context.Context, req resource.CreateRequest
 		AutoPause:            optionalBoolPointer(data.AutoPause),
 		Secure:               optionalBoolPointer(data.Secure),
 		AllowInternetAccess:  optionalBoolPointer(data.AllowInternetAccess),
+		Network:              network,
 		Metadata:             metadata,
 		EnvironmentVariables: envVars,
 	})
@@ -258,10 +269,54 @@ func (r *SandboxResource) Read(ctx context.Context, req resource.ReadRequest, re
 }
 
 func (r *SandboxResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Sandbox updates require replacement",
-		"The E2B sandbox resource marks configurable attributes as ForceNew. Terraform should replace the sandbox instead of updating it in place.",
-	)
+	var plan SandboxResourceModel
+	var state SandboxResourceModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	sandboxID := state.ID.ValueString()
+	plan.ID = state.ID
+
+	if !plan.Timeout.Equal(state.Timeout) && !plan.Timeout.IsNull() && !plan.Timeout.IsUnknown() {
+		if err := r.client.setSandboxTimeout(ctx, sandboxID, plan.Timeout.ValueInt64()); err != nil {
+			addClientError(&resp.Diagnostics, "update sandbox timeout", err)
+			return
+		}
+	}
+
+	if !plan.NetworkAllowOut.Equal(state.NetworkAllowOut) || !plan.NetworkDenyOut.Equal(state.NetworkDenyOut) {
+		network, diags := plan.sandboxNetworkConfig(ctx, true)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		if network == nil {
+			network = &sandboxNetworkConfig{}
+		}
+
+		if err := r.client.updateSandboxNetwork(ctx, sandboxID, *network); err != nil {
+			addClientError(&resp.Diagnostics, "update sandbox network", err)
+			return
+		}
+	}
+
+	detail, err := r.client.getSandbox(ctx, sandboxID)
+	if err != nil {
+		addClientError(&resp.Diagnostics, "read updated sandbox", err)
+		return
+	}
+
+	resp.Diagnostics.Append(plan.applySandboxDetail(ctx, detail)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *SandboxResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -306,5 +361,44 @@ func (m *SandboxResourceModel) applySandboxDetail(ctx context.Context, detail *s
 		m.Metadata = metadata
 	}
 
+	if detail.Network != nil {
+		allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
+		diags.Append(setDiags...)
+		denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
+		diags.Append(setDiags...)
+		if !m.NetworkAllowOut.IsNull() || len(detail.Network.AllowOut) > 0 {
+			m.NetworkAllowOut = allowOut
+		}
+		if !m.NetworkDenyOut.IsNull() || len(detail.Network.DenyOut) > 0 {
+			m.NetworkDenyOut = denyOut
+		}
+	}
+
 	return diags
+}
+
+func (m SandboxResourceModel) sandboxNetworkConfig(ctx context.Context, force bool) (*sandboxNetworkConfig, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	config := &sandboxNetworkConfig{}
+	hasNetwork := force
+
+	if !m.NetworkAllowOut.IsNull() && !m.NetworkAllowOut.IsUnknown() {
+		allowOut, setDiags := stringSetFromTerraform(ctx, m.NetworkAllowOut)
+		diags.Append(setDiags...)
+		config.AllowOut = allowOut
+		hasNetwork = true
+	}
+
+	if !m.NetworkDenyOut.IsNull() && !m.NetworkDenyOut.IsUnknown() {
+		denyOut, setDiags := stringSetFromTerraform(ctx, m.NetworkDenyOut)
+		diags.Append(setDiags...)
+		config.DenyOut = denyOut
+		hasNetwork = true
+	}
+
+	if !hasNetwork {
+		return nil, diags
+	}
+
+	return config, diags
 }

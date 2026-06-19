@@ -17,6 +17,9 @@ resource "e2b_sandbox" "example" {
   template_id = "base"
   timeout     = 300
 
+  network_allow_out = ["8.8.8.8/32"]
+  network_deny_out  = ["203.0.113.0/24"]
+
   metadata = {
     managed_by = "terraform"
   }
@@ -36,6 +39,8 @@ resource "e2b_sandbox" "example" {
 - `auto_pause` (Boolean) Whether the sandbox should pause instead of being killed when the timeout is reached.
 - `env_vars` (Map of String, Sensitive) Environment variables injected into the sandbox.
 - `metadata` (Map of String) Metadata assigned to the sandbox.
+- `network_allow_out` (Set of String) Destinations that sandbox egress traffic is allowed to reach. Entries can be CIDR blocks, IP addresses, or domain names. When allowing domains, E2B requires `network_deny_out` to include `ALL_TRAFFIC`.
+- `network_deny_out` (Set of String) CIDR blocks or IP addresses that sandbox egress traffic is denied from reaching. Use `ALL_TRAFFIC` when pairing domain allow rules with a default-deny policy.
 - `secure` (Boolean) Whether E2B should secure system communication with the sandbox and return access tokens.
 - `timeout` (Number) Sandbox time to live in seconds.
 

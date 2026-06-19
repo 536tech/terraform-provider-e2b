@@ -58,6 +58,15 @@ func (c *e2bClient) deleteSandbox(ctx context.Context, sandboxID string) error {
 	return err
 }
 
+func (c *e2bClient) setSandboxTimeout(ctx context.Context, sandboxID string, timeout int64) error {
+	request := map[string]int64{"timeout": timeout}
+	return c.do(ctx, http.MethodPost, fmt.Sprintf("/sandboxes/%s/timeout", url.PathEscape(sandboxID)), nil, request, nil)
+}
+
+func (c *e2bClient) updateSandboxNetwork(ctx context.Context, sandboxID string, network sandboxNetworkConfig) error {
+	return c.do(ctx, http.MethodPut, fmt.Sprintf("/sandboxes/%s/network", url.PathEscape(sandboxID)), nil, network, nil)
+}
+
 func (c *e2bClient) createVolume(ctx context.Context, name string) (*volumeResponse, error) {
 	var result volumeResponse
 	if err := c.do(ctx, http.MethodPost, "/volumes", nil, volumeRequest{Name: name}, &result); err != nil {
