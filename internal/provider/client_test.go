@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestClientCreateSandbox(t *testing.T) {
@@ -172,5 +173,103 @@ func TestClientListSandboxesEncodesFilters(t *testing.T) {
 	}, []string{"paused", "running"}, 10)
 	if err != nil {
 		t.Fatalf("list sandboxes: %s", err)
+	}
+}
+
+func TestClientTemplateBuildLifecycle(t *testing.T) {
+	t.Parallel()
+
+	var gotCreate templateCreateRequest
+	var gotBuild templateBuildStartRequest
+	var deleted bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v3/templates":
+			if err := json.NewDecoder(r.Body).Decode(&gotCreate); err != nil {
+				t.Fatalf("decode create request: %s", err)
+			}
+
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"templateID":"tpl_123","buildID":"bld_123","public":false,"aliases":["tf-acc"],"names":["team/tf-acc"],"tags":["default"]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/templates/tpl_123/builds/bld_123":
+			if err := json.NewDecoder(r.Body).Decode(&gotBuild); err != nil {
+				t.Fatalf("decode build request: %s", err)
+			}
+
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/templates/tpl_123/builds/bld_123/status":
+			_, _ = w.Write([]byte(`{"templateID":"tpl_123","buildID":"bld_123","status":"ready","logs":[],"logEntries":[]}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/templates/tpl_123":
+			deleted = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := newE2BClient(server.URL, "test-key", "test")
+	if err != nil {
+		t.Fatalf("new client: %s", err)
+	}
+
+	cpuCount := int64(2)
+	memoryMB := int64(512)
+	created, err := client.createTemplate(context.Background(), templateCreateRequest{
+		Name:     "tf-acc",
+		CPUCount: &cpuCount,
+		MemoryMB: &memoryMB,
+	})
+	if err != nil {
+		t.Fatalf("create template: %s", err)
+	}
+
+	force := true
+	if err := client.startTemplateBuild(context.Background(), created.TemplateID, created.BuildID, templateBuildStartRequest{
+		FromImage: "e2bdev/base:latest",
+		Force:     &force,
+		StartCmd:  `sh -c "sleep 3600"`,
+		ReadyCmd:  "true",
+	}); err != nil {
+		t.Fatalf("start template build: %s", err)
+	}
+
+	status, err := client.waitForTemplateBuild(context.Background(), created.TemplateID, created.BuildID, time.Millisecond)
+	if err != nil {
+		t.Fatalf("wait for template build: %s", err)
+	}
+
+	if err := client.deleteTemplate(context.Background(), created.TemplateID); err != nil {
+		t.Fatalf("delete template: %s", err)
+	}
+
+	if gotCreate.Name != "tf-acc" {
+		t.Fatalf("unexpected create name: %q", gotCreate.Name)
+	}
+	if gotCreate.CPUCount == nil || *gotCreate.CPUCount != 2 {
+		t.Fatalf("unexpected create CPU count: %#v", gotCreate.CPUCount)
+	}
+	if gotCreate.MemoryMB == nil || *gotCreate.MemoryMB != 512 {
+		t.Fatalf("unexpected create memory: %#v", gotCreate.MemoryMB)
+	}
+	if gotBuild.FromImage != "e2bdev/base:latest" {
+		t.Fatalf("unexpected from image: %q", gotBuild.FromImage)
+	}
+	if gotBuild.Force == nil || !*gotBuild.Force {
+		t.Fatalf("unexpected force: %#v", gotBuild.Force)
+	}
+	if gotBuild.StartCmd != `sh -c "sleep 3600"` {
+		t.Fatalf("unexpected start command: %q", gotBuild.StartCmd)
+	}
+	if gotBuild.ReadyCmd != "true" {
+		t.Fatalf("unexpected ready command: %q", gotBuild.ReadyCmd)
+	}
+	if status.Status != "ready" {
+		t.Fatalf("unexpected build status: %q", status.Status)
+	}
+	if !deleted {
+		t.Fatalf("expected template to be deleted")
 	}
 }

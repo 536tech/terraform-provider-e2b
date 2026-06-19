@@ -100,6 +100,7 @@ func (p *E2BProvider) Configure(ctx context.Context, req provider.ConfigureReque
 func (p *E2BProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewSandboxResource,
+		NewTemplateResource,
 		NewVolumeResource,
 	}
 }

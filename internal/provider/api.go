@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 func (c *e2bClient) createSandbox(ctx context.Context, request sandboxCreateRequest) (*sandboxResponse, error) {
@@ -119,4 +120,82 @@ func (c *e2bClient) listTemplates(ctx context.Context) ([]templateResponse, erro
 	}
 
 	return result, nil
+}
+
+func (c *e2bClient) createTemplate(ctx context.Context, request templateCreateRequest) (*templateCreateResponse, error) {
+	var result templateCreateResponse
+	if err := c.do(ctx, http.MethodPost, "/v3/templates", nil, request, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) startTemplateBuild(ctx context.Context, templateID string, buildID string, request templateBuildStartRequest) error {
+	path := fmt.Sprintf("/v2/templates/%s/builds/%s", url.PathEscape(templateID), url.PathEscape(buildID))
+	return c.do(ctx, http.MethodPost, path, nil, request, nil)
+}
+
+func (c *e2bClient) getTemplateBuildStatus(ctx context.Context, templateID string, buildID string) (*templateBuildStatusResponse, error) {
+	var result templateBuildStatusResponse
+	path := fmt.Sprintf("/templates/%s/builds/%s/status", url.PathEscape(templateID), url.PathEscape(buildID))
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) waitForTemplateBuild(ctx context.Context, templateID string, buildID string, interval time.Duration) (*templateBuildStatusResponse, error) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		status, err := c.getTemplateBuildStatus(ctx, templateID, buildID)
+		if err != nil {
+			return nil, err
+		}
+
+		switch strings.ToLower(status.Status) {
+		case "ready":
+			return status, nil
+		case "error":
+			return nil, fmt.Errorf("template build %s for template %s failed: %s", buildID, templateID, templateBuildFailureMessage(status))
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("wait for template build %s for template %s: %w", buildID, templateID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func (c *e2bClient) deleteTemplate(ctx context.Context, templateID string) error {
+	err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/templates/%s", url.PathEscape(templateID)), nil, nil, nil)
+	if isNotFound(err) {
+		return nil
+	}
+
+	return err
+}
+
+func templateBuildFailureMessage(status *templateBuildStatusResponse) string {
+	if status.Reason != nil && status.Reason.Message != "" {
+		if status.Reason.Step != "" {
+			return fmt.Sprintf("%s: %s", status.Reason.Step, status.Reason.Message)
+		}
+
+		return status.Reason.Message
+	}
+
+	if len(status.Logs) > 0 {
+		return status.Logs[len(status.Logs)-1]
+	}
+
+	if len(status.LogEntries) > 0 {
+		return status.LogEntries[len(status.LogEntries)-1].Message
+	}
+
+	return "E2B did not return a failure reason"
 }

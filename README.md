@@ -5,6 +5,7 @@ Terraform provider for [E2B](https://e2b.dev), built with the [Terraform Plugin 
 This provider currently covers the E2B Platform API objects that can be tested with an `E2B_API_KEY`:
 
 - `e2b_sandbox` resource
+- `e2b_template` resource
 - `e2b_volume` resource
 - `e2b_sandbox`, `e2b_sandboxes`, `e2b_template`, `e2b_templates`, `e2b_volume`, and `e2b_volumes` data sources
 
@@ -47,6 +48,15 @@ resource "e2b_sandbox" "example" {
   metadata = {
     managed_by = "terraform"
   }
+}
+
+resource "e2b_template" "example" {
+  name       = "example-template"
+  from_image = "e2bdev/base:latest"
+  start_cmd  = "sh -c \"sleep 3600\""
+  ready_cmd  = "true"
+  cpu_count  = 2
+  memory_mb  = 512
 }
 ```
 

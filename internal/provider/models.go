@@ -89,3 +89,48 @@ type templateResponse struct {
 	EnvdVersion   string   `json:"envdVersion"`
 	BuildStatus   string   `json:"buildStatus"`
 }
+
+type templateCreateRequest struct {
+	Name     string   `json:"name"`
+	CPUCount *int64   `json:"cpuCount,omitempty"`
+	MemoryMB *int64   `json:"memoryMB,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
+}
+
+type templateCreateResponse struct {
+	TemplateID string   `json:"templateID"`
+	BuildID    string   `json:"buildID"`
+	Public     bool     `json:"public"`
+	Aliases    []string `json:"aliases"`
+	Names      []string `json:"names"`
+	Tags       []string `json:"tags"`
+}
+
+type templateBuildStartRequest struct {
+	FromImage string `json:"fromImage,omitempty"`
+	Force     *bool  `json:"force,omitempty"`
+	StartCmd  string `json:"startCmd,omitempty"`
+	ReadyCmd  string `json:"readyCmd,omitempty"`
+}
+
+type templateBuildStatusResponse struct {
+	TemplateID string                     `json:"templateID"`
+	BuildID    string                     `json:"buildID"`
+	Status     string                     `json:"status"`
+	Logs       []string                   `json:"logs"`
+	Reason     *templateBuildStatusReason `json:"reason"`
+	LogEntries []templateBuildLogEntry    `json:"logEntries"`
+}
+
+type templateBuildStatusReason struct {
+	Message string                  `json:"message"`
+	Step    string                  `json:"step"`
+	Logs    []templateBuildLogEntry `json:"logEntries"`
+}
+
+type templateBuildLogEntry struct {
+	Timestamp string `json:"timestamp"`
+	Message   string `json:"message"`
+	Level     string `json:"level"`
+	Step      string `json:"step"`
+}
