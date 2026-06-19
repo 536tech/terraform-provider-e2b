@@ -5,55 +5,59 @@ package provider
 
 import (
 	"context"
-	"net/http"
+	"fmt"
+	"os"
+	"strings"
 
-	"github.com/hashicorp/terraform-plugin-framework/action"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
-	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure ScaffoldingProvider satisfies various provider interfaces.
-var _ provider.Provider = &ScaffoldingProvider{}
-var _ provider.ProviderWithFunctions = &ScaffoldingProvider{}
-var _ provider.ProviderWithEphemeralResources = &ScaffoldingProvider{}
-var _ provider.ProviderWithActions = &ScaffoldingProvider{}
+const defaultAPIURL = "https://api.e2b.app"
 
-// ScaffoldingProvider defines the provider implementation.
-type ScaffoldingProvider struct {
+var _ provider.Provider = &E2BProvider{}
+
+// E2BProvider defines the provider implementation.
+type E2BProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
 }
 
-// ScaffoldingProviderModel describes the provider data model.
-type ScaffoldingProviderModel struct {
-	Endpoint types.String `tfsdk:"endpoint"`
+// E2BProviderModel describes the provider configuration.
+type E2BProviderModel struct {
+	APIKey types.String `tfsdk:"api_key"`
+	APIURL types.String `tfsdk:"api_url"`
 }
 
-func (p *ScaffoldingProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "scaffolding"
+func (p *E2BProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
+	resp.TypeName = "e2b"
 	resp.Version = p.version
 }
 
-func (p *ScaffoldingProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *E2BProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Terraform provider for managing E2B sandboxes, volumes, and template metadata.",
 		Attributes: map[string]schema.Attribute{
-			"endpoint": schema.StringAttribute{
-				MarkdownDescription: "Example provider attribute",
+			"api_key": schema.StringAttribute{
+				MarkdownDescription: "E2B API key. May also be set with the `E2B_API_KEY` environment variable.",
+				Optional:            true,
+				Sensitive:           true,
+			},
+			"api_url": schema.StringAttribute{
+				MarkdownDescription: fmt.Sprintf("E2B Platform API base URL. May also be set with `E2B_API_URL`. Defaults to `%s`.", defaultAPIURL),
 				Optional:            true,
 			},
 		},
 	}
 }
 
-func (p *ScaffoldingProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	var data ScaffoldingProviderModel
+func (p *E2BProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+	var data E2BProviderModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
@@ -61,48 +65,59 @@ func (p *ScaffoldingProvider) Configure(ctx context.Context, req provider.Config
 		return
 	}
 
-	// Configuration values are now available.
-	// if data.Endpoint.IsNull() { /* ... */ }
+	apiKey := strings.TrimSpace(os.Getenv("E2B_API_KEY"))
+	if !data.APIKey.IsNull() {
+		apiKey = strings.TrimSpace(data.APIKey.ValueString())
+	}
 
-	// Example client configuration for data sources and resources
-	client := http.DefaultClient
+	if apiKey == "" {
+		resp.Diagnostics.AddError(
+			"Missing E2B API key",
+			"Set api_key in the provider configuration or set the E2B_API_KEY environment variable.",
+		)
+		return
+	}
+
+	apiURL := strings.TrimSpace(os.Getenv("E2B_API_URL"))
+	if !data.APIURL.IsNull() {
+		apiURL = strings.TrimSpace(data.APIURL.ValueString())
+	}
+
+	if apiURL == "" {
+		apiURL = defaultAPIURL
+	}
+
+	client, err := newE2BClient(apiURL, apiKey, p.version)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid E2B client configuration", err.Error())
+		return
+	}
+
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }
 
-func (p *ScaffoldingProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *E2BProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewExampleResource,
+		NewSandboxResource,
+		NewVolumeResource,
 	}
 }
 
-func (p *ScaffoldingProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
-	return []func() ephemeral.EphemeralResource{
-		NewExampleEphemeralResource,
-	}
-}
-
-func (p *ScaffoldingProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+func (p *E2BProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewExampleDataSource,
-	}
-}
-
-func (p *ScaffoldingProvider) Functions(ctx context.Context) []func() function.Function {
-	return []func() function.Function{
-		NewExampleFunction,
-	}
-}
-
-func (p *ScaffoldingProvider) Actions(ctx context.Context) []func() action.Action {
-	return []func() action.Action{
-		NewExampleAction,
+		NewSandboxDataSource,
+		NewSandboxesDataSource,
+		NewTemplateDataSource,
+		NewTemplatesDataSource,
+		NewVolumeDataSource,
+		NewVolumesDataSource,
 	}
 }
 
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
-		return &ScaffoldingProvider{
+		return &E2BProvider{
 			version: version,
 		}
 	}

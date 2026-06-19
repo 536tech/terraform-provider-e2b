@@ -1,3 +1,1 @@
-provider "scaffolding" {
-  # example configuration here
-}
+provider "e2b" {}
