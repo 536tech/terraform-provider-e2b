@@ -16,9 +16,19 @@ Manages a running E2B sandbox.
 resource "e2b_sandbox" "example" {
   template_id = "base"
   timeout     = 300
+  auto_resume = true
 
-  network_allow_out = ["8.8.8.8/32"]
-  network_deny_out  = ["203.0.113.0/24"]
+  network_allow_public_traffic = false
+  network_allow_out            = ["8.8.8.8/32"]
+  network_deny_out             = ["203.0.113.0/24"]
+  network_mask_request_host    = "sandbox.example.com"
+
+  volume_mounts = [
+    {
+      name = "cache"
+      path = "/mnt/cache"
+    }
+  ]
 
   metadata = {
     managed_by = "terraform"
@@ -37,12 +47,16 @@ resource "e2b_sandbox" "example" {
 
 - `allow_internet_access` (Boolean) Whether the sandbox can access the internet.
 - `auto_pause` (Boolean) Whether the sandbox should pause instead of being killed when the timeout is reached.
+- `auto_resume` (Boolean) Whether E2B should automatically resume a paused sandbox on request.
 - `env_vars` (Map of String, Sensitive) Environment variables injected into the sandbox.
 - `metadata` (Map of String) Metadata assigned to the sandbox.
 - `network_allow_out` (Set of String) Destinations that sandbox egress traffic is allowed to reach. Entries can be CIDR blocks, IP addresses, or domain names. When allowing domains, E2B requires `network_deny_out` to include `ALL_TRAFFIC`.
+- `network_allow_public_traffic` (Boolean) Whether the sandbox may receive public traffic.
 - `network_deny_out` (Set of String) CIDR blocks or IP addresses that sandbox egress traffic is denied from reaching. Use `ALL_TRAFFIC` when pairing domain allow rules with a default-deny policy.
+- `network_mask_request_host` (String) Host value E2B should mask on incoming sandbox requests.
 - `secure` (Boolean) Whether E2B should secure system communication with the sandbox and return access tokens.
 - `timeout` (Number) Sandbox time to live in seconds.
+- `volume_mounts` (Attributes List) Volumes to mount into the sandbox at creation time. (see [below for nested schema](#nestedatt--volume_mounts))
 
 ### Read-Only
 
@@ -54,10 +68,20 @@ resource "e2b_sandbox" "example" {
 - `envd_access_token` (String, Sensitive) Access token for authenticated envd requests when secure sandbox mode is enabled.
 - `envd_version` (String) Version of envd running in the sandbox.
 - `id` (String) Sandbox ID.
+- `lifecycle_auto_resume` (Boolean) Whether the sandbox is configured to auto-resume, as reported by E2B.
+- `lifecycle_on_timeout` (String) Lifecycle action E2B applies when the sandbox timeout is reached.
 - `memory_mb` (Number) Memory allocated to the sandbox, in MB.
 - `started_at` (String) Timestamp when the sandbox started.
 - `state` (String) Current sandbox state.
 - `traffic_access_token` (String, Sensitive) Access token for authenticated sandbox traffic when secure sandbox mode is enabled.
+
+<a id="nestedatt--volume_mounts"></a>
+### Nested Schema for `volume_mounts`
+
+Required:
+
+- `name` (String) E2B volume name.
+- `path` (String) Path where the volume is mounted in the sandbox.
 
 ## Import
 

@@ -180,6 +180,224 @@ func (c *e2bClient) deleteTemplate(ctx context.Context, templateID string) error
 	return err
 }
 
+func (c *e2bClient) listTeams(ctx context.Context) ([]teamResponse, error) {
+	var result []teamResponse
+	if err := c.doWithAuth(ctx, http.MethodGet, "/teams", nil, nil, &result, requestAuthBearer); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *e2bClient) getTeamMetrics(ctx context.Context, teamID string, start int64, end int64) ([]teamMetricResponse, error) {
+	query := url.Values{}
+	if start > 0 {
+		query.Set("start", fmt.Sprintf("%d", start))
+	}
+	if end > 0 {
+		query.Set("end", fmt.Sprintf("%d", end))
+	}
+
+	var result []teamMetricResponse
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/teams/%s/metrics", url.PathEscape(teamID)), query, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *e2bClient) getTeamMetricMax(ctx context.Context, teamID string, metric string, start int64, end int64) (*maxTeamMetricResponse, error) {
+	query := url.Values{}
+	query.Set("metric", metric)
+	if start > 0 {
+		query.Set("start", fmt.Sprintf("%d", start))
+	}
+	if end > 0 {
+		query.Set("end", fmt.Sprintf("%d", end))
+	}
+
+	var result maxTeamMetricResponse
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/teams/%s/metrics/max", url.PathEscape(teamID)), query, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) createAPIKey(ctx context.Context, name string) (*apiKeyResponse, error) {
+	var result apiKeyResponse
+	if err := c.doWithAuth(ctx, http.MethodPost, "/api-keys", nil, apiKeyRequest{Name: name}, &result, requestAuthTeamBearer); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) listAPIKeys(ctx context.Context) ([]apiKeyResponse, error) {
+	var result []apiKeyResponse
+	if err := c.doWithAuth(ctx, http.MethodGet, "/api-keys", nil, nil, &result, requestAuthTeamBearer); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *e2bClient) updateAPIKey(ctx context.Context, apiKeyID string, name string) error {
+	return c.doWithAuth(ctx, http.MethodPatch, fmt.Sprintf("/api-keys/%s", url.PathEscape(apiKeyID)), nil, apiKeyRequest{Name: name}, nil, requestAuthTeamBearer)
+}
+
+func (c *e2bClient) deleteAPIKey(ctx context.Context, apiKeyID string) error {
+	err := c.doWithAuth(ctx, http.MethodDelete, fmt.Sprintf("/api-keys/%s", url.PathEscape(apiKeyID)), nil, nil, nil, requestAuthTeamBearer)
+	if isNotFound(err) {
+		return nil
+	}
+
+	return err
+}
+
+func (c *e2bClient) createAccessToken(ctx context.Context, name string) (*accessTokenResponse, error) {
+	var result accessTokenResponse
+	if err := c.doWithAuth(ctx, http.MethodPost, "/access-tokens", nil, accessTokenRequest{Name: name}, &result, requestAuthBearer); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) deleteAccessToken(ctx context.Context, accessTokenID string) error {
+	err := c.doWithAuth(ctx, http.MethodDelete, fmt.Sprintf("/access-tokens/%s", url.PathEscape(accessTokenID)), nil, nil, nil, requestAuthBearer)
+	if isNotFound(err) {
+		return nil
+	}
+
+	return err
+}
+
+func (c *e2bClient) assignTemplateTags(ctx context.Context, target string, tags []string) (*templateTagsAssignResponse, error) {
+	var result templateTagsAssignResponse
+	if err := c.do(ctx, http.MethodPost, "/templates/tags", nil, templateTagsAssignRequest{Target: target, Tags: tags}, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) deleteTemplateTags(ctx context.Context, name string, tags []string) error {
+	return c.do(ctx, http.MethodDelete, "/templates/tags", nil, templateTagsDeleteRequest{Name: name, Tags: tags}, nil)
+}
+
+func (c *e2bClient) listTemplateTags(ctx context.Context, templateID string) ([]templateTagResponse, error) {
+	var result []templateTagResponse
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/templates/%s/tags", url.PathEscape(templateID)), nil, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *e2bClient) createLifecycleWebhook(ctx context.Context, request lifecycleWebhookRequest) (*lifecycleWebhookResponse, error) {
+	var result lifecycleWebhookResponse
+	if err := c.do(ctx, http.MethodPost, "/events/webhooks", nil, request, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) getLifecycleWebhook(ctx context.Context, webhookID string) (*lifecycleWebhookResponse, error) {
+	var result lifecycleWebhookResponse
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/events/webhooks/%s", url.PathEscape(webhookID)), nil, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) listLifecycleWebhooks(ctx context.Context) ([]lifecycleWebhookResponse, error) {
+	var result []lifecycleWebhookResponse
+	if err := c.do(ctx, http.MethodGet, "/events/webhooks", nil, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *e2bClient) updateLifecycleWebhook(ctx context.Context, webhookID string, request lifecycleWebhookRequest) (*lifecycleWebhookResponse, error) {
+	var result lifecycleWebhookResponse
+	if err := c.do(ctx, http.MethodPatch, fmt.Sprintf("/events/webhooks/%s", url.PathEscape(webhookID)), nil, request, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) deleteLifecycleWebhook(ctx context.Context, webhookID string) error {
+	err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/events/webhooks/%s", url.PathEscape(webhookID)), nil, nil, nil)
+	if isNotFound(err) {
+		return nil
+	}
+
+	return err
+}
+
+func (c *e2bClient) listLifecycleEvents(ctx context.Context, sandboxID string, eventTypes []string, offset int64, limit int64, orderAsc *bool) ([]lifecycleEventResponse, error) {
+	query := url.Values{}
+	for _, eventType := range eventTypes {
+		query.Add("types", eventType)
+	}
+	if offset > 0 {
+		query.Set("offset", fmt.Sprintf("%d", offset))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if orderAsc != nil {
+		query.Set("orderAsc", fmt.Sprintf("%t", *orderAsc))
+	}
+
+	path := "/events/sandboxes"
+	if sandboxID != "" {
+		path = fmt.Sprintf("/events/sandboxes/%s", url.PathEscape(sandboxID))
+	}
+
+	var result []lifecycleEventResponse
+	if err := c.do(ctx, http.MethodGet, path, query, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *e2bClient) createSnapshot(ctx context.Context, sandboxID string, name string) (*snapshotResponse, error) {
+	var result snapshotResponse
+	path := fmt.Sprintf("/sandboxes/%s/snapshots", url.PathEscape(sandboxID))
+	if err := c.do(ctx, http.MethodPost, path, nil, snapshotRequest{Name: name}, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) listSnapshots(ctx context.Context, sandboxID string, limit int64, nextToken string) ([]snapshotResponse, error) {
+	query := url.Values{}
+	if sandboxID != "" {
+		query.Set("sandboxID", sandboxID)
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if nextToken != "" {
+		query.Set("nextToken", nextToken)
+	}
+
+	var result []snapshotResponse
+	if err := c.do(ctx, http.MethodGet, "/snapshots", query, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 func templateBuildFailureMessage(status *templateBuildStatusResponse) string {
 	if status.Reason != nil && status.Reason.Message != "" {
 		if status.Reason.Step != "" {

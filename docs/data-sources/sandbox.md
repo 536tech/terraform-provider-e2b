@@ -35,11 +35,24 @@ data "e2b_sandbox" "example" {
 - `end_at` (String) Timestamp when the sandbox will expire.
 - `envd_access_token` (String, Sensitive) Access token for authenticated envd requests when secure sandbox mode is enabled.
 - `envd_version` (String) Version of envd running in the sandbox.
+- `lifecycle_auto_resume` (Boolean) Whether the sandbox is configured to auto-resume.
+- `lifecycle_on_timeout` (String) Lifecycle action E2B applies when the sandbox timeout is reached.
 - `memory_mb` (Number) Memory allocated to the sandbox, in MB.
 - `metadata` (Map of String) Sandbox metadata.
 - `network_allow_out` (Set of String) Destinations that sandbox egress traffic is allowed to reach.
+- `network_allow_public_traffic` (Boolean) Whether the sandbox may receive public traffic.
 - `network_deny_out` (Set of String) CIDR blocks, IP addresses, or `ALL_TRAFFIC` entries that sandbox egress traffic is denied from reaching.
+- `network_mask_request_host` (String) Host value E2B masks on incoming sandbox requests.
 - `started_at` (String) Timestamp when the sandbox started.
 - `state` (String) Sandbox state.
 - `template_id` (String) Template ID used to create the sandbox.
 - `traffic_access_token` (String, Sensitive) Access token for authenticated sandbox traffic when secure sandbox mode is enabled.
+- `volume_mounts` (Attributes List) Volumes mounted into the sandbox. (see [below for nested schema](#nestedatt--volume_mounts))
+
+<a id="nestedatt--volume_mounts"></a>
+### Nested Schema for `volume_mounts`
+
+Read-Only:
+
+- `name` (String) E2B volume name.
+- `path` (String) Path where the volume is mounted in the sandbox.

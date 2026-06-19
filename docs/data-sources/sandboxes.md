@@ -49,3 +49,12 @@ Read-Only:
 - `started_at` (String) Timestamp when the sandbox started.
 - `state` (String) Sandbox state.
 - `template_id` (String) Template ID used to create the sandbox.
+- `volume_mounts` (Attributes List) Volumes mounted into the sandbox. (see [below for nested schema](#nestedatt--sandboxes--volume_mounts))
+
+<a id="nestedatt--sandboxes--volume_mounts"></a>
+### Nested Schema for `sandboxes.volume_mounts`
+
+Read-Only:
+
+- `name` (String) E2B volume name.
+- `path` (String) Path where the volume is mounted in the sandbox.

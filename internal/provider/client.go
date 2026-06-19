@@ -16,10 +16,12 @@ import (
 )
 
 type e2bClient struct {
-	baseURL    *url.URL
-	apiKey     string
-	httpClient *http.Client
-	userAgent  string
+	baseURL     *url.URL
+	apiKey      string
+	accessToken string
+	teamID      string
+	httpClient  *http.Client
+	userAgent   string
 }
 
 type apiError struct {
@@ -35,7 +37,14 @@ func (e *apiError) Error() string {
 	return fmt.Sprintf("E2B API returned status %d: %s", e.StatusCode, e.Body)
 }
 
-func newE2BClient(rawBaseURL string, apiKey string, version string) (*e2bClient, error) {
+type e2bClientConfig struct {
+	APIKey      string
+	AccessToken string
+	TeamID      string
+	Version     string
+}
+
+func newE2BClientWithConfig(rawBaseURL string, config e2bClientConfig) (*e2bClient, error) {
 	parsed, err := url.Parse(strings.TrimRight(rawBaseURL, "/"))
 	if err != nil {
 		return nil, fmt.Errorf("parse api_url: %w", err)
@@ -45,21 +54,31 @@ func newE2BClient(rawBaseURL string, apiKey string, version string) (*e2bClient,
 		return nil, fmt.Errorf("api_url must be an absolute URL")
 	}
 
-	if version == "" {
-		version = "dev"
+	if config.Version == "" {
+		config.Version = "dev"
 	}
 
 	return &e2bClient{
-		baseURL: parsed,
-		apiKey:  apiKey,
+		baseURL:     parsed,
+		apiKey:      strings.TrimSpace(config.APIKey),
+		accessToken: strings.TrimSpace(config.AccessToken),
+		teamID:      strings.TrimSpace(config.TeamID),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		userAgent: "terraform-provider-e2b/" + version,
+		userAgent: "terraform-provider-e2b/" + config.Version,
 	}, nil
 }
 
-func (c *e2bClient) newRequest(ctx context.Context, method string, path string, query url.Values, body any) (*http.Request, error) {
+type requestAuthMode string
+
+const (
+	requestAuthDefault    requestAuthMode = "default"
+	requestAuthBearer     requestAuthMode = "bearer"
+	requestAuthTeamBearer requestAuthMode = "team_bearer"
+)
+
+func (c *e2bClient) newRequestWithAuth(ctx context.Context, method string, path string, query url.Values, body any, authMode requestAuthMode) (*http.Request, error) {
 	u := *c.baseURL
 	u.Path = strings.TrimRight(c.baseURL.Path, "/") + path
 	u.RawQuery = query.Encode()
@@ -80,7 +99,9 @@ func (c *e2bClient) newRequest(ctx context.Context, method string, path string, 
 
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
-	req.Header.Set("X-API-Key", c.apiKey)
+	if err := c.setAuthHeaders(req, authMode); err != nil {
+		return nil, err
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -88,8 +109,49 @@ func (c *e2bClient) newRequest(ctx context.Context, method string, path string, 
 	return req, nil
 }
 
+func (c *e2bClient) setAuthHeaders(req *http.Request, authMode requestAuthMode) error {
+	switch authMode {
+	case requestAuthDefault:
+		if c.apiKey != "" {
+			req.Header.Set("X-API-Key", c.apiKey)
+			return nil
+		}
+		if c.accessToken != "" {
+			req.Header.Set("Authorization", "Bearer "+c.accessToken)
+			if c.teamID != "" {
+				req.Header.Set("X-Team-ID", c.teamID)
+			}
+			return nil
+		}
+
+		return fmt.Errorf("missing E2B authentication token")
+	case requestAuthBearer:
+		if c.accessToken == "" {
+			return fmt.Errorf("missing E2B access token; set access_token or E2B_ACCESS_TOKEN")
+		}
+		req.Header.Set("Authorization", "Bearer "+c.accessToken)
+		return nil
+	case requestAuthTeamBearer:
+		if c.accessToken == "" {
+			return fmt.Errorf("missing E2B access token; set access_token or E2B_ACCESS_TOKEN")
+		}
+		if c.teamID == "" {
+			return fmt.Errorf("missing E2B team ID; set team_id or E2B_TEAM_ID")
+		}
+		req.Header.Set("Authorization", "Bearer "+c.accessToken)
+		req.Header.Set("X-Team-ID", c.teamID)
+		return nil
+	default:
+		return fmt.Errorf("unknown E2B request auth mode %q", authMode)
+	}
+}
+
 func (c *e2bClient) do(ctx context.Context, method string, path string, query url.Values, body any, target any) error {
-	req, err := c.newRequest(ctx, method, path, query, body)
+	return c.doWithAuth(ctx, method, path, query, body, target, requestAuthDefault)
+}
+
+func (c *e2bClient) doWithAuth(ctx context.Context, method string, path string, query url.Values, body any, target any, authMode requestAuthMode) error {
+	req, err := c.newRequestWithAuth(ctx, method, path, query, body, authMode)
 	if err != nil {
 		return err
 	}

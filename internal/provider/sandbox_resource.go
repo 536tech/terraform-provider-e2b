@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -30,27 +31,38 @@ type SandboxResource struct {
 }
 
 type SandboxResourceModel struct {
-	ID                  types.String `tfsdk:"id"`
-	TemplateID          types.String `tfsdk:"template_id"`
-	Timeout             types.Int64  `tfsdk:"timeout"`
-	AutoPause           types.Bool   `tfsdk:"auto_pause"`
-	Secure              types.Bool   `tfsdk:"secure"`
-	AllowInternetAccess types.Bool   `tfsdk:"allow_internet_access"`
-	NetworkAllowOut     types.Set    `tfsdk:"network_allow_out"`
-	NetworkDenyOut      types.Set    `tfsdk:"network_deny_out"`
-	Metadata            types.Map    `tfsdk:"metadata"`
-	EnvVars             types.Map    `tfsdk:"env_vars"`
-	Alias               types.String `tfsdk:"alias"`
-	ClientID            types.String `tfsdk:"client_id"`
-	EnvdVersion         types.String `tfsdk:"envd_version"`
-	EnvdAccessToken     types.String `tfsdk:"envd_access_token"`
-	TrafficAccessToken  types.String `tfsdk:"traffic_access_token"`
-	State               types.String `tfsdk:"state"`
-	StartedAt           types.String `tfsdk:"started_at"`
-	EndAt               types.String `tfsdk:"end_at"`
-	CPUCount            types.Int64  `tfsdk:"cpu_count"`
-	MemoryMB            types.Int64  `tfsdk:"memory_mb"`
-	DiskSizeMB          types.Int64  `tfsdk:"disk_size_mb"`
+	ID                        types.String              `tfsdk:"id"`
+	TemplateID                types.String              `tfsdk:"template_id"`
+	Timeout                   types.Int64               `tfsdk:"timeout"`
+	AutoPause                 types.Bool                `tfsdk:"auto_pause"`
+	AutoResume                types.Bool                `tfsdk:"auto_resume"`
+	Secure                    types.Bool                `tfsdk:"secure"`
+	AllowInternetAccess       types.Bool                `tfsdk:"allow_internet_access"`
+	NetworkAllowPublicTraffic types.Bool                `tfsdk:"network_allow_public_traffic"`
+	NetworkAllowOut           types.Set                 `tfsdk:"network_allow_out"`
+	NetworkDenyOut            types.Set                 `tfsdk:"network_deny_out"`
+	NetworkMaskRequestHost    types.String              `tfsdk:"network_mask_request_host"`
+	VolumeMounts              []SandboxVolumeMountModel `tfsdk:"volume_mounts"`
+	Metadata                  types.Map                 `tfsdk:"metadata"`
+	EnvVars                   types.Map                 `tfsdk:"env_vars"`
+	Alias                     types.String              `tfsdk:"alias"`
+	ClientID                  types.String              `tfsdk:"client_id"`
+	EnvdVersion               types.String              `tfsdk:"envd_version"`
+	EnvdAccessToken           types.String              `tfsdk:"envd_access_token"`
+	TrafficAccessToken        types.String              `tfsdk:"traffic_access_token"`
+	State                     types.String              `tfsdk:"state"`
+	StartedAt                 types.String              `tfsdk:"started_at"`
+	EndAt                     types.String              `tfsdk:"end_at"`
+	LifecycleAutoResume       types.Bool                `tfsdk:"lifecycle_auto_resume"`
+	LifecycleOnTimeout        types.String              `tfsdk:"lifecycle_on_timeout"`
+	CPUCount                  types.Int64               `tfsdk:"cpu_count"`
+	MemoryMB                  types.Int64               `tfsdk:"memory_mb"`
+	DiskSizeMB                types.Int64               `tfsdk:"disk_size_mb"`
+}
+
+type SandboxVolumeMountModel struct {
+	Name types.String `tfsdk:"name"`
+	Path types.String `tfsdk:"path"`
 }
 
 func (r *SandboxResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -86,6 +98,13 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 					boolplanmodifier.RequiresReplace(),
 				},
 			},
+			"auto_resume": schema.BoolAttribute{
+				MarkdownDescription: "Whether E2B should automatically resume a paused sandbox on request.",
+				Optional:            true,
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
+				},
+			},
 			"secure": schema.BoolAttribute{
 				MarkdownDescription: "Whether E2B should secure system communication with the sandbox and return access tokens.",
 				Optional:            true,
@@ -100,6 +119,13 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 					boolplanmodifier.RequiresReplace(),
 				},
 			},
+			"network_allow_public_traffic": schema.BoolAttribute{
+				MarkdownDescription: "Whether the sandbox may receive public traffic.",
+				Optional:            true,
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplace(),
+				},
+			},
 			"network_allow_out": schema.SetAttribute{
 				MarkdownDescription: "Destinations that sandbox egress traffic is allowed to reach. Entries can be CIDR blocks, IP addresses, or domain names. When allowing domains, E2B requires `network_deny_out` to include `ALL_TRAFFIC`.",
 				ElementType:         types.StringType,
@@ -109,6 +135,32 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 				MarkdownDescription: "CIDR blocks or IP addresses that sandbox egress traffic is denied from reaching. Use `ALL_TRAFFIC` when pairing domain allow rules with a default-deny policy.",
 				ElementType:         types.StringType,
 				Optional:            true,
+			},
+			"network_mask_request_host": schema.StringAttribute{
+				MarkdownDescription: "Host value E2B should mask on incoming sandbox requests.",
+				Optional:            true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"volume_mounts": schema.ListNestedAttribute{
+				MarkdownDescription: "Volumes to mount into the sandbox at creation time.",
+				Optional:            true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							MarkdownDescription: "E2B volume name.",
+							Required:            true,
+						},
+						"path": schema.StringAttribute{
+							MarkdownDescription: "Path where the volume is mounted in the sandbox.",
+							Required:            true,
+						},
+					},
+				},
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.RequiresReplace(),
+				},
 			},
 			"metadata": schema.MapAttribute{
 				MarkdownDescription: "Metadata assigned to the sandbox.",
@@ -159,6 +211,14 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 			},
 			"end_at": schema.StringAttribute{
 				MarkdownDescription: "Timestamp when the sandbox will expire.",
+				Computed:            true,
+			},
+			"lifecycle_auto_resume": schema.BoolAttribute{
+				MarkdownDescription: "Whether the sandbox is configured to auto-resume, as reported by E2B.",
+				Computed:            true,
+			},
+			"lifecycle_on_timeout": schema.StringAttribute{
+				MarkdownDescription: "Lifecycle action E2B applies when the sandbox timeout is reached.",
 				Computed:            true,
 			},
 			"cpu_count": schema.Int64Attribute{
@@ -215,11 +275,13 @@ func (r *SandboxResource) Create(ctx context.Context, req resource.CreateRequest
 		TemplateID:           data.TemplateID.ValueString(),
 		Timeout:              optionalInt64Pointer(data.Timeout),
 		AutoPause:            optionalBoolPointer(data.AutoPause),
+		AutoResume:           sandboxAutoResumeFromTerraform(data.AutoResume),
 		Secure:               optionalBoolPointer(data.Secure),
 		AllowInternetAccess:  optionalBoolPointer(data.AllowInternetAccess),
 		Network:              network,
 		Metadata:             metadata,
 		EnvironmentVariables: envVars,
+		VolumeMounts:         sandboxVolumeMountsFromTerraform(data.VolumeMounts),
 	})
 	if err != nil {
 		addClientError(&resp.Diagnostics, "create sandbox", err)
@@ -354,6 +416,16 @@ func (m *SandboxResourceModel) applySandboxDetail(ctx context.Context, detail *s
 	m.MemoryMB = int64PointerValue(detail.MemoryMB)
 	m.DiskSizeMB = int64PointerValue(detail.DiskSizeMB)
 	m.State = types.StringValue(detail.State)
+	if detail.Lifecycle != nil {
+		m.LifecycleAutoResume = types.BoolValue(detail.Lifecycle.AutoResume)
+		m.LifecycleOnTimeout = types.StringValue(detail.Lifecycle.OnTimeout)
+	} else {
+		m.LifecycleAutoResume = types.BoolNull()
+		m.LifecycleOnTimeout = types.StringNull()
+	}
+	if len(m.VolumeMounts) > 0 || len(detail.VolumeMounts) > 0 {
+		m.VolumeMounts = flattenSandboxVolumeMounts(detail.VolumeMounts)
+	}
 
 	metadata, mapDiags := mapStringValue(ctx, detail.Metadata)
 	diags.Append(mapDiags...)
@@ -362,6 +434,12 @@ func (m *SandboxResourceModel) applySandboxDetail(ctx context.Context, detail *s
 	}
 
 	if detail.Network != nil {
+		if !m.NetworkAllowPublicTraffic.IsNull() || detail.Network.AllowPublicTraffic != nil {
+			m.NetworkAllowPublicTraffic = boolPointerValue(detail.Network.AllowPublicTraffic)
+		}
+		if !m.NetworkMaskRequestHost.IsNull() || detail.Network.MaskRequestHost != "" {
+			m.NetworkMaskRequestHost = types.StringValue(detail.Network.MaskRequestHost)
+		}
 		allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
 		diags.Append(setDiags...)
 		denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
@@ -396,9 +474,61 @@ func (m SandboxResourceModel) sandboxNetworkConfig(ctx context.Context, force bo
 		hasNetwork = true
 	}
 
+	if !m.NetworkAllowPublicTraffic.IsNull() && !m.NetworkAllowPublicTraffic.IsUnknown() {
+		config.AllowPublicTraffic = optionalBoolPointer(m.NetworkAllowPublicTraffic)
+		hasNetwork = true
+	}
+
+	if !m.NetworkMaskRequestHost.IsNull() && !m.NetworkMaskRequestHost.IsUnknown() {
+		config.MaskRequestHost = m.NetworkMaskRequestHost.ValueString()
+		hasNetwork = true
+	}
+
 	if !hasNetwork {
 		return nil, diags
 	}
 
 	return config, diags
+}
+
+func sandboxAutoResumeFromTerraform(value types.Bool) *sandboxAutoResume {
+	if value.IsNull() || value.IsUnknown() {
+		return nil
+	}
+
+	return &sandboxAutoResume{
+		Enabled: value.ValueBool(),
+	}
+}
+
+func sandboxVolumeMountsFromTerraform(mounts []SandboxVolumeMountModel) []sandboxVolumeMount {
+	if len(mounts) == 0 {
+		return nil
+	}
+
+	result := make([]sandboxVolumeMount, 0, len(mounts))
+	for _, mount := range mounts {
+		result = append(result, sandboxVolumeMount{
+			Name: mount.Name.ValueString(),
+			Path: mount.Path.ValueString(),
+		})
+	}
+
+	return result
+}
+
+func flattenSandboxVolumeMounts(mounts []sandboxVolumeMount) []SandboxVolumeMountModel {
+	if len(mounts) == 0 {
+		return nil
+	}
+
+	result := make([]SandboxVolumeMountModel, 0, len(mounts))
+	for _, mount := range mounts {
+		result = append(result, SandboxVolumeMountModel{
+			Name: types.StringValue(mount.Name),
+			Path: types.StringValue(mount.Path),
+		})
+	}
+
+	return result
 }

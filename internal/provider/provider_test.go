@@ -4,17 +4,74 @@
 package provider
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
 
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	"e2b": providerserver.NewProtocol6WithError(New("test")()),
+}
+
+func TestDataSourcesHaveResourceCounterpartOrReadOnlyAPI(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	provider := &E2BProvider{version: "test"}
+
+	resources := map[string]struct{}{}
+	for _, newResource := range provider.Resources(ctx) {
+		var resp resource.MetadataResponse
+		newResource().Metadata(ctx, resource.MetadataRequest{ProviderTypeName: "e2b"}, &resp)
+		resources[resp.TypeName] = struct{}{}
+	}
+
+	counterparts := map[string]string{
+		"e2b_api_key":            "e2b_api_key",
+		"e2b_api_keys":           "e2b_api_key",
+		"e2b_lifecycle_webhook":  "e2b_lifecycle_webhook",
+		"e2b_lifecycle_webhooks": "e2b_lifecycle_webhook",
+		"e2b_sandbox":            "e2b_sandbox",
+		"e2b_sandboxes":          "e2b_sandbox",
+		"e2b_snapshots":          "e2b_snapshot",
+		"e2b_template":           "e2b_template",
+		"e2b_template_tags":      "e2b_template_tags",
+		"e2b_templates":          "e2b_template",
+		"e2b_volume":             "e2b_volume",
+		"e2b_volumes":            "e2b_volume",
+	}
+
+	readOnlyAPIDataSources := map[string]string{
+		"e2b_lifecycle_events": "E2B exposes lifecycle events as GET-only event history.",
+		"e2b_team_metric_max":  "E2B exposes team metric maximums as GET-only telemetry.",
+		"e2b_team_metrics":     "E2B exposes team metrics as GET-only telemetry.",
+		"e2b_teams":            "E2B exposes teams as GET-only identity context.",
+	}
+
+	for _, newDataSource := range provider.DataSources(ctx) {
+		var resp datasource.MetadataResponse
+		newDataSource().Metadata(ctx, datasource.MetadataRequest{ProviderTypeName: "e2b"}, &resp)
+
+		if counterpart, ok := counterparts[resp.TypeName]; ok {
+			if _, exists := resources[counterpart]; !exists {
+				t.Fatalf("data source %s expects resource %s, but it is not registered", resp.TypeName, counterpart)
+			}
+			continue
+		}
+
+		if reason, ok := readOnlyAPIDataSources[resp.TypeName]; ok && reason != "" {
+			continue
+		}
+
+		t.Fatalf("data source %s must have a resource counterpart or an explicit read-only API exception", resp.TypeName)
+	}
 }
 
 func testAccPreCheck(t *testing.T) {

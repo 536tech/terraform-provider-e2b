@@ -29,23 +29,28 @@ type SandboxDataSource struct {
 }
 
 type SandboxDataSourceModel struct {
-	ID                  types.String `tfsdk:"id"`
-	TemplateID          types.String `tfsdk:"template_id"`
-	Alias               types.String `tfsdk:"alias"`
-	ClientID            types.String `tfsdk:"client_id"`
-	StartedAt           types.String `tfsdk:"started_at"`
-	EndAt               types.String `tfsdk:"end_at"`
-	EnvdVersion         types.String `tfsdk:"envd_version"`
-	EnvdAccessToken     types.String `tfsdk:"envd_access_token"`
-	TrafficAccessToken  types.String `tfsdk:"traffic_access_token"`
-	AllowInternetAccess types.Bool   `tfsdk:"allow_internet_access"`
-	CPUCount            types.Int64  `tfsdk:"cpu_count"`
-	MemoryMB            types.Int64  `tfsdk:"memory_mb"`
-	DiskSizeMB          types.Int64  `tfsdk:"disk_size_mb"`
-	Metadata            types.Map    `tfsdk:"metadata"`
-	NetworkAllowOut     types.Set    `tfsdk:"network_allow_out"`
-	NetworkDenyOut      types.Set    `tfsdk:"network_deny_out"`
-	State               types.String `tfsdk:"state"`
+	ID                        types.String              `tfsdk:"id"`
+	TemplateID                types.String              `tfsdk:"template_id"`
+	Alias                     types.String              `tfsdk:"alias"`
+	ClientID                  types.String              `tfsdk:"client_id"`
+	StartedAt                 types.String              `tfsdk:"started_at"`
+	EndAt                     types.String              `tfsdk:"end_at"`
+	EnvdVersion               types.String              `tfsdk:"envd_version"`
+	EnvdAccessToken           types.String              `tfsdk:"envd_access_token"`
+	TrafficAccessToken        types.String              `tfsdk:"traffic_access_token"`
+	AllowInternetAccess       types.Bool                `tfsdk:"allow_internet_access"`
+	NetworkAllowPublicTraffic types.Bool                `tfsdk:"network_allow_public_traffic"`
+	NetworkMaskRequestHost    types.String              `tfsdk:"network_mask_request_host"`
+	LifecycleAutoResume       types.Bool                `tfsdk:"lifecycle_auto_resume"`
+	LifecycleOnTimeout        types.String              `tfsdk:"lifecycle_on_timeout"`
+	CPUCount                  types.Int64               `tfsdk:"cpu_count"`
+	MemoryMB                  types.Int64               `tfsdk:"memory_mb"`
+	DiskSizeMB                types.Int64               `tfsdk:"disk_size_mb"`
+	Metadata                  types.Map                 `tfsdk:"metadata"`
+	NetworkAllowOut           types.Set                 `tfsdk:"network_allow_out"`
+	NetworkDenyOut            types.Set                 `tfsdk:"network_deny_out"`
+	VolumeMounts              []SandboxVolumeMountModel `tfsdk:"volume_mounts"`
+	State                     types.String              `tfsdk:"state"`
 }
 
 type SandboxesDataSource struct {
@@ -60,18 +65,19 @@ type SandboxesDataSourceModel struct {
 }
 
 type ListedSandboxModel struct {
-	ID          types.String `tfsdk:"id"`
-	TemplateID  types.String `tfsdk:"template_id"`
-	Alias       types.String `tfsdk:"alias"`
-	ClientID    types.String `tfsdk:"client_id"`
-	StartedAt   types.String `tfsdk:"started_at"`
-	EndAt       types.String `tfsdk:"end_at"`
-	CPUCount    types.Int64  `tfsdk:"cpu_count"`
-	MemoryMB    types.Int64  `tfsdk:"memory_mb"`
-	DiskSizeMB  types.Int64  `tfsdk:"disk_size_mb"`
-	Metadata    types.Map    `tfsdk:"metadata"`
-	State       types.String `tfsdk:"state"`
-	EnvdVersion types.String `tfsdk:"envd_version"`
+	ID           types.String              `tfsdk:"id"`
+	TemplateID   types.String              `tfsdk:"template_id"`
+	Alias        types.String              `tfsdk:"alias"`
+	ClientID     types.String              `tfsdk:"client_id"`
+	StartedAt    types.String              `tfsdk:"started_at"`
+	EndAt        types.String              `tfsdk:"end_at"`
+	CPUCount     types.Int64               `tfsdk:"cpu_count"`
+	MemoryMB     types.Int64               `tfsdk:"memory_mb"`
+	DiskSizeMB   types.Int64               `tfsdk:"disk_size_mb"`
+	Metadata     types.Map                 `tfsdk:"metadata"`
+	State        types.String              `tfsdk:"state"`
+	EnvdVersion  types.String              `tfsdk:"envd_version"`
+	VolumeMounts []SandboxVolumeMountModel `tfsdk:"volume_mounts"`
 }
 
 func (d *SandboxDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -229,15 +235,32 @@ func (m *SandboxDataSourceModel) applySandboxDetail(ctx context.Context, detail 
 	m.MemoryMB = int64PointerValue(detail.MemoryMB)
 	m.DiskSizeMB = int64PointerValue(detail.DiskSizeMB)
 	m.State = types.StringValue(detail.State)
+	if detail.Lifecycle != nil {
+		m.LifecycleAutoResume = types.BoolValue(detail.Lifecycle.AutoResume)
+		m.LifecycleOnTimeout = types.StringValue(detail.Lifecycle.OnTimeout)
+	} else {
+		m.LifecycleAutoResume = types.BoolNull()
+		m.LifecycleOnTimeout = types.StringNull()
+	}
+	m.VolumeMounts = flattenSandboxVolumeMounts(detail.VolumeMounts)
 
 	metadata, mapDiags := mapStringValue(ctx, detail.Metadata)
 	diags.Append(mapDiags...)
 	m.Metadata = metadata
 
 	if detail.Network == nil {
+		m.NetworkAllowPublicTraffic = types.BoolNull()
+		m.NetworkMaskRequestHost = types.StringNull()
 		m.NetworkAllowOut = types.SetNull(types.StringType)
 		m.NetworkDenyOut = types.SetNull(types.StringType)
 		return diags
+	}
+
+	m.NetworkAllowPublicTraffic = boolPointerValue(detail.Network.AllowPublicTraffic)
+	if detail.Network.MaskRequestHost == "" {
+		m.NetworkMaskRequestHost = types.StringNull()
+	} else {
+		m.NetworkMaskRequestHost = types.StringValue(detail.Network.MaskRequestHost)
 	}
 
 	allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
@@ -258,18 +281,19 @@ func flattenListedSandbox(ctx context.Context, sandbox listedSandboxResponse) (L
 	diags.Append(mapDiags...)
 
 	return ListedSandboxModel{
-		ID:          types.StringValue(sandbox.SandboxID),
-		TemplateID:  types.StringValue(sandbox.TemplateID),
-		Alias:       types.StringValue(sandbox.Alias),
-		ClientID:    types.StringValue(sandbox.ClientID),
-		StartedAt:   types.StringValue(sandbox.StartedAt),
-		EndAt:       types.StringValue(sandbox.EndAt),
-		CPUCount:    int64PointerValue(sandbox.CPUCount),
-		MemoryMB:    int64PointerValue(sandbox.MemoryMB),
-		DiskSizeMB:  int64PointerValue(sandbox.DiskSizeMB),
-		Metadata:    metadata,
-		State:       types.StringValue(sandbox.State),
-		EnvdVersion: types.StringValue(sandbox.EnvdVersion),
+		ID:           types.StringValue(sandbox.SandboxID),
+		TemplateID:   types.StringValue(sandbox.TemplateID),
+		Alias:        types.StringValue(sandbox.Alias),
+		ClientID:     types.StringValue(sandbox.ClientID),
+		StartedAt:    types.StringValue(sandbox.StartedAt),
+		EndAt:        types.StringValue(sandbox.EndAt),
+		CPUCount:     int64PointerValue(sandbox.CPUCount),
+		MemoryMB:     int64PointerValue(sandbox.MemoryMB),
+		DiskSizeMB:   int64PointerValue(sandbox.DiskSizeMB),
+		Metadata:     metadata,
+		State:        types.StringValue(sandbox.State),
+		EnvdVersion:  types.StringValue(sandbox.EnvdVersion),
+		VolumeMounts: flattenSandboxVolumeMounts(sandbox.VolumeMounts),
 	}, diags
 }
 
@@ -301,6 +325,14 @@ func sandboxDetailAttributes(idRequired bool) map[string]schema.Attribute {
 		MarkdownDescription: "Whether internet access was explicitly enabled or disabled for the sandbox.",
 		Computed:            true,
 	}
+	attributes["network_allow_public_traffic"] = schema.BoolAttribute{
+		MarkdownDescription: "Whether the sandbox may receive public traffic.",
+		Computed:            true,
+	}
+	attributes["network_mask_request_host"] = schema.StringAttribute{
+		MarkdownDescription: "Host value E2B masks on incoming sandbox requests.",
+		Computed:            true,
+	}
 	attributes["network_allow_out"] = schema.SetAttribute{
 		MarkdownDescription: "Destinations that sandbox egress traffic is allowed to reach.",
 		ElementType:         types.StringType,
@@ -309,6 +341,14 @@ func sandboxDetailAttributes(idRequired bool) map[string]schema.Attribute {
 	attributes["network_deny_out"] = schema.SetAttribute{
 		MarkdownDescription: "CIDR blocks, IP addresses, or `ALL_TRAFFIC` entries that sandbox egress traffic is denied from reaching.",
 		ElementType:         types.StringType,
+		Computed:            true,
+	}
+	attributes["lifecycle_auto_resume"] = schema.BoolAttribute{
+		MarkdownDescription: "Whether the sandbox is configured to auto-resume.",
+		Computed:            true,
+	}
+	attributes["lifecycle_on_timeout"] = schema.StringAttribute{
+		MarkdownDescription: "Lifecycle action E2B applies when the sandbox timeout is reached.",
 		Computed:            true,
 	}
 
@@ -365,6 +405,22 @@ func listedSandboxAttributes() map[string]schema.Attribute {
 		"envd_version": schema.StringAttribute{
 			MarkdownDescription: "Version of envd running in the sandbox.",
 			Computed:            true,
+		},
+		"volume_mounts": schema.ListNestedAttribute{
+			MarkdownDescription: "Volumes mounted into the sandbox.",
+			Computed:            true,
+			NestedObject: schema.NestedAttributeObject{
+				Attributes: map[string]schema.Attribute{
+					"name": schema.StringAttribute{
+						MarkdownDescription: "E2B volume name.",
+						Computed:            true,
+					},
+					"path": schema.StringAttribute{
+						MarkdownDescription: "Path where the volume is mounted in the sandbox.",
+						Computed:            true,
+					},
+				},
+			},
 		},
 	}
 }
