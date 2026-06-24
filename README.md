@@ -4,25 +4,23 @@ Terraform provider for [E2B](https://e2b.dev), built with the [Terraform Plugin 
 
 This provider covers E2B Platform API objects that are useful for sandbox operations and team governance:
 
-- `e2b_access_token` resource
-- `e2b_api_key` resource
 - `e2b_lifecycle_webhook` resource
 - `e2b_sandbox` resource
 - `e2b_snapshot` resource
 - `e2b_template` resource
 - `e2b_template_tags` resource
 - `e2b_volume` resource
-- `e2b_api_key`, `e2b_api_keys`, `e2b_lifecycle_events`, `e2b_lifecycle_webhook`, `e2b_lifecycle_webhooks`, `e2b_sandbox`, `e2b_sandboxes`, `e2b_snapshots`, `e2b_template`, `e2b_template_tags`, `e2b_templates`, `e2b_team_metric_max`, `e2b_team_metrics`, `e2b_teams`, `e2b_volume`, and `e2b_volumes` data sources
+- `e2b_lifecycle_events`, `e2b_lifecycle_webhook`, `e2b_lifecycle_webhooks`, `e2b_sandbox`, `e2b_sandbox_logs`, `e2b_sandbox_metric_history`, `e2b_sandbox_metrics`, `e2b_sandboxes`, `e2b_snapshots`, `e2b_template`, `e2b_template_alias`, `e2b_template_tags`, `e2b_templates`, `e2b_team_metric_max`, `e2b_team_metrics`, `e2b_volume`, and `e2b_volumes` data sources
 
-Every data source with a creatable E2B API object has a matching Terraform resource. The exceptions are read-only public API surfaces: `e2b_teams`, `e2b_team_metrics`, `e2b_team_metric_max`, and `e2b_lifecycle_events`.
+Every data source with a creatable E2B API object has a matching Terraform resource. The exceptions are read-only public API surfaces: lifecycle events, sandbox logs/metrics, template aliases, and team metrics.
+
+`E2B_ACCESS_TOKEN` is not supported. E2B announced access token deprecation on June 22, 2026; new token generation stops on July 1, 2026, and access-token-authenticated requests stop working on August 1, 2026. Use `E2B_API_KEY`.
 
 ## Requirements
 
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
 - [Go](https://golang.org/doc/install) >= 1.24
 - E2B API key exported as `E2B_API_KEY` for standard sandbox, template, volume, lifecycle, snapshot, and tag routes
-- E2B access token exported as `E2B_ACCESS_TOKEN` for bearer-authenticated team, access token, and API key routes
-- E2B team ID exported as `E2B_TEAM_ID` for team-scoped bearer routes such as API key management
 
 ## Building the Provider
 
@@ -75,8 +73,6 @@ resource "e2b_template" "example" {
 The provider reads:
 
 - `E2B_API_KEY` for API authentication.
-- `E2B_ACCESS_TOKEN` for bearer-authenticated team routes.
-- `E2B_TEAM_ID` for team-scoped bearer-authenticated routes.
 - `E2B_API_URL` to override the API base URL. The default is `https://api.e2b.app`.
 
 ## Developing the Provider
@@ -107,3 +103,7 @@ Generate documentation:
 ```shell
 make generate
 ```
+
+See [docs/api-coverage.md](docs/api-coverage.md) for the current OpenAPI coverage map.
+
+The [Azure self-hosting readiness example](examples/use-cases/azure-self-hosting-readiness) prepares Azure networking, storage, registry, identity, secrets, and logging resources for future E2B Azure BYOC/self-hosting work. It is a readiness example, not a claim that Azure BYOC is generally available.

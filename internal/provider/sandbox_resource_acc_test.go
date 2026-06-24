@@ -97,6 +97,19 @@ data "e2b_sandboxes" "filtered" {
   states = ["running"]
   limit  = 10
 }
+
+data "e2b_sandbox_logs" "recent" {
+  sandbox_id = e2b_sandbox.test.id
+  limit      = 10
+}
+
+data "e2b_sandbox_metric_history" "test" {
+  sandbox_id = e2b_sandbox.test.id
+}
+
+data "e2b_sandbox_metrics" "test" {
+  sandbox_ids = [e2b_sandbox.test.id]
+}
 `, testAccProviderConfig(), name, timeout, allowOut, denyOut)
 }
 

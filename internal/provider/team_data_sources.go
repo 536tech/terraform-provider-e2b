@@ -12,13 +12,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var _ datasource.DataSource = &TeamsDataSource{}
 var _ datasource.DataSource = &TeamMetricsDataSource{}
 var _ datasource.DataSource = &TeamMetricMaxDataSource{}
-
-func NewTeamsDataSource() datasource.DataSource {
-	return &TeamsDataSource{}
-}
 
 func NewTeamMetricsDataSource() datasource.DataSource {
 	return &TeamMetricsDataSource{}
@@ -26,21 +21,6 @@ func NewTeamMetricsDataSource() datasource.DataSource {
 
 func NewTeamMetricMaxDataSource() datasource.DataSource {
 	return &TeamMetricMaxDataSource{}
-}
-
-type TeamsDataSource struct {
-	client *e2bClient
-}
-
-type TeamModel struct {
-	ID        types.String `tfsdk:"id"`
-	Name      types.String `tfsdk:"name"`
-	APIKey    types.String `tfsdk:"api_key"`
-	IsDefault types.Bool   `tfsdk:"is_default"`
-}
-
-type TeamsDataSourceModel struct {
-	Teams []TeamModel `tfsdk:"teams"`
 }
 
 type TeamMetricsDataSource struct {
@@ -73,86 +53,6 @@ type TeamMetricMaxDataSourceModel struct {
 	Timestamp     types.String  `tfsdk:"timestamp"`
 	TimestampUnix types.Int64   `tfsdk:"timestamp_unix"`
 	Value         types.Float64 `tfsdk:"value"`
-}
-
-func (d *TeamsDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_teams"
-}
-
-func (d *TeamsDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
-	resp.Schema = schema.Schema{
-		MarkdownDescription: "Lists E2B teams visible to the configured access token. E2B exposes teams as read-only identity context in the public API and does not expose team creation through this API. This route requires `access_token` provider configuration.",
-		Attributes: map[string]schema.Attribute{
-			"teams": schema.ListNestedAttribute{
-				MarkdownDescription: "E2B teams.",
-				Computed:            true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"id": schema.StringAttribute{
-							MarkdownDescription: "Team ID.",
-							Computed:            true,
-						},
-						"name": schema.StringAttribute{
-							MarkdownDescription: "Team name.",
-							Computed:            true,
-						},
-						"api_key": schema.StringAttribute{
-							MarkdownDescription: "Team API key returned by E2B's team listing route.",
-							Computed:            true,
-							Sensitive:           true,
-						},
-						"is_default": schema.BoolAttribute{
-							MarkdownDescription: "Whether this is the default team.",
-							Computed:            true,
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-func (d *TeamsDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	client, ok := req.ProviderData.(*e2bClient)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *e2bClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	d.client = client
-}
-
-func (d *TeamsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var data TeamsDataSourceModel
-	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	teams, err := d.client.listTeams(ctx)
-	if err != nil {
-		addClientError(&resp.Diagnostics, "list teams", err)
-		return
-	}
-
-	data.Teams = make([]TeamModel, 0, len(teams))
-	for _, team := range teams {
-		data.Teams = append(data.Teams, TeamModel{
-			ID:        types.StringValue(team.TeamID),
-			Name:      types.StringValue(team.Name),
-			APIKey:    types.StringValue(team.APIKey),
-			IsDefault: types.BoolValue(team.IsDefault),
-		})
-	}
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (d *TeamMetricsDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {

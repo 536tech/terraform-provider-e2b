@@ -3,12 +3,12 @@
 page_title: "e2b_template Data Source - e2b"
 subcategory: ""
 description: |-
-  Reads E2B template metadata by template ID, alias, or name.
+  Reads E2B template metadata by template ID.
 ---
 
 # e2b_template (Data Source)
 
-Reads E2B template metadata by template ID, alias, or name.
+Reads E2B template metadata by template ID.
 
 ## Example Usage
 

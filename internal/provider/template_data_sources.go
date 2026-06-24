@@ -14,14 +14,29 @@ import (
 )
 
 var _ datasource.DataSource = &TemplateDataSource{}
+var _ datasource.DataSource = &TemplateAliasDataSource{}
 var _ datasource.DataSource = &TemplatesDataSource{}
 
 func NewTemplateDataSource() datasource.DataSource {
 	return &TemplateDataSource{}
 }
 
+func NewTemplateAliasDataSource() datasource.DataSource {
+	return &TemplateAliasDataSource{}
+}
+
 func NewTemplatesDataSource() datasource.DataSource {
 	return &TemplatesDataSource{}
+}
+
+type TemplateAliasDataSource struct {
+	client *e2bClient
+}
+
+type TemplateAliasDataSourceModel struct {
+	Alias      types.String `tfsdk:"alias"`
+	TemplateID types.String `tfsdk:"template_id"`
+	Public     types.Bool   `tfsdk:"public"`
 }
 
 type TemplateDataSource struct {
@@ -54,13 +69,64 @@ type TemplatesDataSourceModel struct {
 	Templates []TemplateDataSourceModel `tfsdk:"templates"`
 }
 
+func (d *TemplateAliasDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_template_alias"
+}
+
+func (d *TemplateAliasDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Reads the template ID and visibility for an E2B template alias.",
+		Attributes: map[string]schema.Attribute{
+			"alias":       schema.StringAttribute{MarkdownDescription: "Template alias.", Required: true},
+			"template_id": schema.StringAttribute{MarkdownDescription: "Template ID for the alias.", Computed: true},
+			"public":      schema.BoolAttribute{MarkdownDescription: "Whether the aliased template is public.", Computed: true},
+		},
+	}
+}
+
+func (d *TemplateAliasDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+
+	client, ok := req.ProviderData.(*e2bClient)
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Data Source Configure Type",
+			fmt.Sprintf("Expected *e2bClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
+		return
+	}
+
+	d.client = client
+}
+
+func (d *TemplateAliasDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var data TemplateAliasDataSourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	alias, err := d.client.getTemplateAlias(ctx, data.Alias.ValueString())
+	if err != nil {
+		addClientError(&resp.Diagnostics, "read template alias", err)
+		return
+	}
+
+	data.TemplateID = types.StringValue(alias.TemplateID)
+	data.Public = types.BoolValue(alias.Public)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
 func (d *TemplateDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_template"
 }
 
 func (d *TemplateDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Reads E2B template metadata by template ID, alias, or name.",
+		MarkdownDescription: "Reads E2B template metadata by template ID.",
 		Attributes:          templateAttributes(true),
 	}
 }

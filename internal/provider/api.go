@@ -50,6 +50,61 @@ func (c *e2bClient) listSandboxes(ctx context.Context, metadata map[string]strin
 	return result, nil
 }
 
+func (c *e2bClient) listSandboxesMetrics(ctx context.Context, sandboxIDs []string) (map[string]sandboxMetricResponse, error) {
+	query := url.Values{}
+	query.Set("sandbox_ids", strings.Join(sandboxIDs, ","))
+
+	var result sandboxesMetricsResponse
+	if err := c.do(ctx, http.MethodGet, "/sandboxes/metrics", query, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result.Sandboxes, nil
+}
+
+func (c *e2bClient) getSandboxMetrics(ctx context.Context, sandboxID string, start int64, end int64) ([]sandboxMetricResponse, error) {
+	query := url.Values{}
+	if start > 0 {
+		query.Set("start", fmt.Sprintf("%d", start))
+	}
+	if end > 0 {
+		query.Set("end", fmt.Sprintf("%d", end))
+	}
+
+	var result []sandboxMetricResponse
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/sandboxes/%s/metrics", url.PathEscape(sandboxID)), query, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *e2bClient) getSandboxLogs(ctx context.Context, sandboxID string, cursor int64, limit int64, direction string, level string, search string) ([]sandboxLogEntryResponse, error) {
+	query := url.Values{}
+	if cursor > 0 {
+		query.Set("cursor", fmt.Sprintf("%d", cursor))
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if direction != "" {
+		query.Set("direction", direction)
+	}
+	if level != "" {
+		query.Set("level", level)
+	}
+	if search != "" {
+		query.Set("search", search)
+	}
+
+	var result sandboxLogsResponse
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v2/sandboxes/%s/logs", url.PathEscape(sandboxID)), query, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return result.Logs, nil
+}
+
 func (c *e2bClient) deleteSandbox(ctx context.Context, sandboxID string) error {
 	err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/sandboxes/%s", url.PathEscape(sandboxID)), nil, nil, nil)
 	if isNotFound(err) {
@@ -107,6 +162,15 @@ func (c *e2bClient) deleteVolume(ctx context.Context, volumeID string) error {
 func (c *e2bClient) getTemplate(ctx context.Context, templateID string) (*templateResponse, error) {
 	var result templateResponse
 	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/templates/%s", url.PathEscape(templateID)), nil, nil, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *e2bClient) getTemplateAlias(ctx context.Context, alias string) (*templateAliasResponse, error) {
+	var result templateAliasResponse
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/templates/aliases/%s", url.PathEscape(alias)), nil, nil, &result); err != nil {
 		return nil, err
 	}
 
@@ -180,15 +244,6 @@ func (c *e2bClient) deleteTemplate(ctx context.Context, templateID string) error
 	return err
 }
 
-func (c *e2bClient) listTeams(ctx context.Context) ([]teamResponse, error) {
-	var result []teamResponse
-	if err := c.doWithAuth(ctx, http.MethodGet, "/teams", nil, nil, &result, requestAuthBearer); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
 func (c *e2bClient) getTeamMetrics(ctx context.Context, teamID string, start int64, end int64) ([]teamMetricResponse, error) {
 	query := url.Values{}
 	if start > 0 {
@@ -222,55 +277,6 @@ func (c *e2bClient) getTeamMetricMax(ctx context.Context, teamID string, metric 
 	}
 
 	return &result, nil
-}
-
-func (c *e2bClient) createAPIKey(ctx context.Context, name string) (*apiKeyResponse, error) {
-	var result apiKeyResponse
-	if err := c.doWithAuth(ctx, http.MethodPost, "/api-keys", nil, apiKeyRequest{Name: name}, &result, requestAuthTeamBearer); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-func (c *e2bClient) listAPIKeys(ctx context.Context) ([]apiKeyResponse, error) {
-	var result []apiKeyResponse
-	if err := c.doWithAuth(ctx, http.MethodGet, "/api-keys", nil, nil, &result, requestAuthTeamBearer); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func (c *e2bClient) updateAPIKey(ctx context.Context, apiKeyID string, name string) error {
-	return c.doWithAuth(ctx, http.MethodPatch, fmt.Sprintf("/api-keys/%s", url.PathEscape(apiKeyID)), nil, apiKeyRequest{Name: name}, nil, requestAuthTeamBearer)
-}
-
-func (c *e2bClient) deleteAPIKey(ctx context.Context, apiKeyID string) error {
-	err := c.doWithAuth(ctx, http.MethodDelete, fmt.Sprintf("/api-keys/%s", url.PathEscape(apiKeyID)), nil, nil, nil, requestAuthTeamBearer)
-	if isNotFound(err) {
-		return nil
-	}
-
-	return err
-}
-
-func (c *e2bClient) createAccessToken(ctx context.Context, name string) (*accessTokenResponse, error) {
-	var result accessTokenResponse
-	if err := c.doWithAuth(ctx, http.MethodPost, "/access-tokens", nil, accessTokenRequest{Name: name}, &result, requestAuthBearer); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-func (c *e2bClient) deleteAccessToken(ctx context.Context, accessTokenID string) error {
-	err := c.doWithAuth(ctx, http.MethodDelete, fmt.Sprintf("/access-tokens/%s", url.PathEscape(accessTokenID)), nil, nil, nil, requestAuthBearer)
-	if isNotFound(err) {
-		return nil
-	}
-
-	return err
 }
 
 func (c *e2bClient) assignTemplateTags(ctx context.Context, target string, tags []string) (*templateTagsAssignResponse, error) {

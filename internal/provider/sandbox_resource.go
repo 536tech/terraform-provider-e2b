@@ -115,15 +115,19 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 			"allow_internet_access": schema.BoolAttribute{
 				MarkdownDescription: "Whether the sandbox can access the internet.",
 				Optional:            true,
+				Computed:            true,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.RequiresReplace(),
+					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"network_allow_public_traffic": schema.BoolAttribute{
 				MarkdownDescription: "Whether the sandbox may receive public traffic.",
 				Optional:            true,
+				Computed:            true,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.RequiresReplace(),
+					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"network_allow_out": schema.SetAttribute{
@@ -433,23 +437,28 @@ func (m *SandboxResourceModel) applySandboxDetail(ctx context.Context, detail *s
 		m.Metadata = metadata
 	}
 
-	if detail.Network != nil {
-		if !m.NetworkAllowPublicTraffic.IsNull() || detail.Network.AllowPublicTraffic != nil {
-			m.NetworkAllowPublicTraffic = boolPointerValue(detail.Network.AllowPublicTraffic)
+	if detail.Network == nil {
+		if m.NetworkAllowPublicTraffic.IsUnknown() {
+			m.NetworkAllowPublicTraffic = types.BoolNull()
 		}
-		if !m.NetworkMaskRequestHost.IsNull() || detail.Network.MaskRequestHost != "" {
-			m.NetworkMaskRequestHost = types.StringValue(detail.Network.MaskRequestHost)
-		}
-		allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
-		diags.Append(setDiags...)
-		denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
-		diags.Append(setDiags...)
-		if !m.NetworkAllowOut.IsNull() || len(detail.Network.AllowOut) > 0 {
-			m.NetworkAllowOut = allowOut
-		}
-		if !m.NetworkDenyOut.IsNull() || len(detail.Network.DenyOut) > 0 {
-			m.NetworkDenyOut = denyOut
-		}
+		return diags
+	}
+
+	if !m.NetworkAllowPublicTraffic.IsNull() || detail.Network.AllowPublicTraffic != nil {
+		m.NetworkAllowPublicTraffic = boolPointerValue(detail.Network.AllowPublicTraffic)
+	}
+	if !m.NetworkMaskRequestHost.IsNull() || detail.Network.MaskRequestHost != "" {
+		m.NetworkMaskRequestHost = types.StringValue(detail.Network.MaskRequestHost)
+	}
+	allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
+	diags.Append(setDiags...)
+	denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
+	diags.Append(setDiags...)
+	if !m.NetworkAllowOut.IsNull() || len(detail.Network.AllowOut) > 0 {
+		m.NetworkAllowOut = allowOut
+	}
+	if !m.NetworkDenyOut.IsNull() || len(detail.Network.DenyOut) > 0 {
+		m.NetworkDenyOut = denyOut
 	}
 
 	return diags

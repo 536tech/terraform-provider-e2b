@@ -69,6 +69,33 @@ type listedSandboxResponse struct {
 	VolumeMounts []sandboxVolumeMount `json:"volumeMounts"`
 }
 
+type sandboxesMetricsResponse struct {
+	Sandboxes map[string]sandboxMetricResponse `json:"sandboxes"`
+}
+
+type sandboxMetricResponse struct {
+	Timestamp     string  `json:"timestamp"`
+	TimestampUnix int64   `json:"timestampUnix"`
+	CPUCount      int64   `json:"cpuCount"`
+	CPUUsedPct    float64 `json:"cpuUsedPct"`
+	MemUsed       int64   `json:"memUsed"`
+	MemTotal      int64   `json:"memTotal"`
+	MemCache      int64   `json:"memCache"`
+	DiskUsed      int64   `json:"diskUsed"`
+	DiskTotal     int64   `json:"diskTotal"`
+}
+
+type sandboxLogsResponse struct {
+	Logs []sandboxLogEntryResponse `json:"logs"`
+}
+
+type sandboxLogEntryResponse struct {
+	Timestamp string            `json:"timestamp"`
+	Level     string            `json:"level"`
+	Message   string            `json:"message"`
+	Fields    map[string]string `json:"fields"`
+}
+
 type sandboxNetworkConfig struct {
 	AllowPublicTraffic *bool    `json:"allowPublicTraffic,omitempty"`
 	AllowOut           []string `json:"allowOut,omitempty"`
@@ -111,6 +138,11 @@ type templateResponse struct {
 	BuildCount    int64    `json:"buildCount"`
 	EnvdVersion   string   `json:"envdVersion"`
 	BuildStatus   string   `json:"buildStatus"`
+}
+
+type templateAliasResponse struct {
+	TemplateID string `json:"templateID"`
+	Public     bool   `json:"public"`
 }
 
 type templateCreateRequest struct {
@@ -158,13 +190,6 @@ type templateBuildLogEntry struct {
 	Step      string `json:"step"`
 }
 
-type teamResponse struct {
-	TeamID    string `json:"teamID"`
-	Name      string `json:"name"`
-	APIKey    string `json:"apiKey"`
-	IsDefault bool   `json:"isDefault"`
-}
-
 type teamMetricResponse struct {
 	Timestamp           string  `json:"timestamp"`
 	TimestampUnix       int64   `json:"timestampUnix"`
@@ -176,44 +201,6 @@ type maxTeamMetricResponse struct {
 	Timestamp     string  `json:"timestamp"`
 	TimestampUnix int64   `json:"timestampUnix"`
 	Value         float64 `json:"value"`
-}
-
-type maskingDetailsResponse struct {
-	Prefix            string `json:"prefix"`
-	ValueLength       int64  `json:"valueLength"`
-	MaskedValuePrefix string `json:"maskedValuePrefix"`
-	MaskedValueSuffix string `json:"maskedValueSuffix"`
-}
-
-type teamUserResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-}
-
-type apiKeyRequest struct {
-	Name string `json:"name"`
-}
-
-type apiKeyResponse struct {
-	ID        string                  `json:"id"`
-	Name      string                  `json:"name"`
-	Key       string                  `json:"key"`
-	Mask      *maskingDetailsResponse `json:"mask"`
-	CreatedAt string                  `json:"createdAt"`
-	CreatedBy *teamUserResponse       `json:"createdBy"`
-	LastUsed  *string                 `json:"lastUsed"`
-}
-
-type accessTokenRequest struct {
-	Name string `json:"name"`
-}
-
-type accessTokenResponse struct {
-	ID        string                  `json:"id"`
-	Name      string                  `json:"name"`
-	Token     string                  `json:"token"`
-	Mask      *maskingDetailsResponse `json:"mask"`
-	CreatedAt string                  `json:"createdAt"`
 }
 
 type snapshotRequest struct {
