@@ -20,6 +20,7 @@ Validate without creating resources:
 ```shell
 terraform init -backend=false
 terraform validate
+terraform plan
 ```
 
 Apply only after E2B publishes an Azure BYOC/self-hosting path or gives you onboarding-specific requirements.

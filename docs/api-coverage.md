@@ -20,6 +20,8 @@ Checked against `https://raw.githubusercontent.com/e2b-dev/docs/main/openapi-pub
 | Lifecycle webhooks and events | `e2b_lifecycle_webhook` resource; `e2b_lifecycle_webhook`, `e2b_lifecycle_webhooks`, `e2b_lifecycle_events` data sources |
 | Team metrics | `e2b_team_metrics`, `e2b_team_metric_max` |
 
+`GET /templates/{templateID}/builds/{buildID}/status` is marked `AccessTokenAuth` in OpenAPI, but the live API accepts `E2B_API_KEY`; `TestAccTemplateResource` covers that API-key path.
+
 ## Intentionally excluded
 
 | OpenAPI surface | Reason |
