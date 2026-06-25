@@ -28,4 +28,3 @@ output "max_concurrent_sandboxes" {
   description = "Maximum observed concurrent sandboxes for the team over E2B's default metric interval."
   value       = data.e2b_team_metric_max.concurrent_sandboxes.value
 }
-

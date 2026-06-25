@@ -12,6 +12,14 @@ Terraform provider for managing E2B sandboxes, volumes, templates, lifecycle web
 ## Example Usage
 
 ```terraform
+terraform {
+  required_providers {
+    e2b = {
+      source = "536tech/e2b"
+    }
+  }
+}
+
 provider "e2b" {}
 ```
 
