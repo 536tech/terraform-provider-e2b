@@ -11,4 +11,3 @@ This example composes public E2B API resources into a small governance baseline:
 - Read sandbox and team metric evidence for compliance checks.
 
 It is intentionally provider-only. It does not create the proxy, SIEM endpoint, or policy engine that receives the audit data.
-

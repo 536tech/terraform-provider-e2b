@@ -72,4 +72,3 @@ variable "lifecycle_webhook_signature_secret" {
   type        = string
   sensitive   = true
 }
-
