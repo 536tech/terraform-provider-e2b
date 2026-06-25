@@ -20,6 +20,7 @@ resource "e2b_template" "example" {
   ready_cmd  = "true"
   cpu_count  = 2
   memory_mb  = 512
+  public     = false
 }
 ```
 
@@ -36,6 +37,7 @@ resource "e2b_template" "example" {
 - `force` (Boolean) Whether E2B should force the build to run regardless of cache.
 - `from_image` (String) Container image used as the template build base. Required when creating a template.
 - `memory_mb` (Number) Memory configured for the template, in MB.
+- `public` (Boolean) Whether the template is public. When set, Terraform manages template visibility through the E2B template update API.
 - `ready_cmd` (String) Command E2B runs to determine when sandboxes from the template are ready.
 - `start_cmd` (String) Command E2B runs when a sandbox starts from the template.
 
@@ -51,7 +53,6 @@ resource "e2b_template" "example" {
 - `id` (String) Template ID.
 - `last_spawned_at` (String) Timestamp when the template was last spawned.
 - `names` (List of String) Fully qualified template names.
-- `public` (Boolean) Whether the template is public.
 - `spawn_count` (Number) Number of sandboxes created from the template.
 - `updated_at` (String) Timestamp when the template was last updated.
 

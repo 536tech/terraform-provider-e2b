@@ -10,9 +10,9 @@ Checked against `https://raw.githubusercontent.com/e2b-dev/docs/main/openapi-pub
 | Surface | Terraform coverage |
 | --- | --- |
 | Sandboxes | `e2b_sandbox` resource; `e2b_sandbox`, `e2b_sandboxes` data sources |
-| Sandbox network and timeout updates | `e2b_sandbox` update |
+| Sandbox network and timeout updates | `e2b_sandbox` update, including egress allow/deny lists, internet access, egress proxy, and per-domain header transform rules |
 | Sandbox metrics and logs | `e2b_sandbox_metrics`, `e2b_sandbox_metric_history`, `e2b_sandbox_logs` |
-| Templates | `e2b_template` resource; `e2b_template`, `e2b_templates`, `e2b_template_alias` data sources |
+| Templates | `e2b_template` resource, including template visibility; `e2b_template`, `e2b_templates`, `e2b_template_alias` data sources |
 | Template builds | `e2b_template` resource |
 | Template tags | `e2b_template_tags` resource and data source |
 | Volumes | `e2b_volume` resource; `e2b_volume`, `e2b_volumes` data sources |

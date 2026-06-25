@@ -66,7 +66,21 @@ func TestClientCreateSandbox(t *testing.T) {
 		},
 		Network: &sandboxNetworkConfig{
 			AllowPublicTraffic: &allowPublicTraffic,
-			MaskRequestHost:    "sandbox.example.com",
+			EgressProxy: &sandboxEgressProxyConfig{
+				Address:  "proxy.example.com:1080",
+				Username: "agent",
+				Password: "secret",
+			},
+			MaskRequestHost: "sandbox.example.com",
+			Rules: map[string][]sandboxNetworkRule{
+				"api.example.com": {
+					{
+						Transform: &sandboxNetworkTransform{
+							Headers: map[string]string{"X-E2B-Policy": "terraform"},
+						},
+					},
+				},
+			},
 		},
 		VolumeMounts: []sandboxVolumeMount{
 			{Name: "cache", Path: "/mnt/cache"},
@@ -96,6 +110,12 @@ func TestClientCreateSandbox(t *testing.T) {
 	}
 	if gotRequest.Network == nil || gotRequest.Network.MaskRequestHost != "sandbox.example.com" {
 		t.Fatalf("unexpected mask request host: %#v", gotRequest.Network)
+	}
+	if gotRequest.Network == nil || gotRequest.Network.EgressProxy == nil || gotRequest.Network.EgressProxy.Address != "proxy.example.com:1080" || gotRequest.Network.EgressProxy.Username != "agent" || gotRequest.Network.EgressProxy.Password != "secret" {
+		t.Fatalf("unexpected egress proxy: %#v", gotRequest.Network)
+	}
+	if gotRequest.Network == nil || len(gotRequest.Network.Rules["api.example.com"]) != 1 || gotRequest.Network.Rules["api.example.com"][0].Transform.Headers["X-E2B-Policy"] != "terraform" {
+		t.Fatalf("unexpected network rules: %#v", gotRequest.Network)
 	}
 	if len(gotRequest.VolumeMounts) != 1 || gotRequest.VolumeMounts[0].Name != "cache" || gotRequest.VolumeMounts[0].Path != "/mnt/cache" {
 		t.Fatalf("unexpected volume mounts: %#v", gotRequest.VolumeMounts)
@@ -127,6 +147,15 @@ func TestClientUpdateSandboxNetwork(t *testing.T) {
 		if len(gotRequest.DenyOut) != 1 || gotRequest.DenyOut[0] != "203.0.113.0/24" {
 			t.Fatalf("unexpected deny out: %#v", gotRequest.DenyOut)
 		}
+		if gotRequest.EgressProxy == nil || gotRequest.EgressProxy.Address != "proxy.example.com:1080" {
+			t.Fatalf("unexpected egress proxy: %#v", gotRequest.EgressProxy)
+		}
+		if len(gotRequest.Rules["api.example.com"]) != 1 || gotRequest.Rules["api.example.com"][0].Transform.Headers["X-E2B-Policy"] != "terraform" {
+			t.Fatalf("unexpected rules: %#v", gotRequest.Rules)
+		}
+		if gotRequest.AllowInternetAccess == nil || *gotRequest.AllowInternetAccess {
+			t.Fatalf("unexpected allow internet access: %#v", gotRequest.AllowInternetAccess)
+		}
 
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -134,9 +163,23 @@ func TestClientUpdateSandboxNetwork(t *testing.T) {
 
 	client := newTestAPIKeyClient(t, server.URL)
 
+	allowInternetAccess := false
 	err := client.updateSandboxNetwork(context.Background(), "sbx_123", sandboxNetworkConfig{
 		AllowOut: []string{"8.8.8.8/32"},
 		DenyOut:  []string{"203.0.113.0/24"},
+		EgressProxy: &sandboxEgressProxyConfig{
+			Address: "proxy.example.com:1080",
+		},
+		Rules: map[string][]sandboxNetworkRule{
+			"api.example.com": {
+				{
+					Transform: &sandboxNetworkTransform{
+						Headers: map[string]string{"X-E2B-Policy": "terraform"},
+					},
+				},
+			},
+		},
+		AllowInternetAccess: &allowInternetAccess,
 	})
 	if err != nil {
 		t.Fatalf("update sandbox network: %s", err)
@@ -516,6 +559,7 @@ func TestClientTemplateBuildLifecycle(t *testing.T) {
 
 	var gotCreate templateCreateRequest
 	var gotBuild templateBuildStartRequest
+	var gotUpdate templateUpdateRequest
 	var deleted bool
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -536,6 +580,11 @@ func TestClientTemplateBuildLifecycle(t *testing.T) {
 			_, _ = w.Write([]byte(`{}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/templates/tpl_123/builds/bld_123/status":
 			_, _ = w.Write([]byte(`{"templateID":"tpl_123","buildID":"bld_123","status":"ready","logs":[],"logEntries":[]}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/v2/templates/tpl_123":
+			if err := json.NewDecoder(r.Body).Decode(&gotUpdate); err != nil {
+				t.Fatalf("decode update request: %s", err)
+			}
+			_, _ = w.Write([]byte(`{"names":["team/tf-acc"]}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/templates/tpl_123":
 			deleted = true
 			w.WriteHeader(http.StatusNoContent)
@@ -600,6 +649,13 @@ func TestClientTemplateBuildLifecycle(t *testing.T) {
 	}
 	if status.Status != "ready" {
 		t.Fatalf("unexpected build status: %q", status.Status)
+	}
+	public := true
+	if err := client.updateTemplate(context.Background(), created.TemplateID, templateUpdateRequest{Public: &public}); err != nil {
+		t.Fatalf("update template: %s", err)
+	}
+	if gotUpdate.Public == nil || !*gotUpdate.Public {
+		t.Fatalf("unexpected update request: %#v", gotUpdate)
 	}
 	if !deleted {
 		t.Fatalf("expected template to be deleted")

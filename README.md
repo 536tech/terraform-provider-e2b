@@ -50,10 +50,20 @@ resource "e2b_sandbox" "example" {
   timeout     = 300
   auto_resume = true
 
+  allow_internet_access        = true
   network_allow_public_traffic = false
-  network_allow_out            = ["8.8.8.8/32"]
-  network_deny_out             = ["203.0.113.0/24"]
+  network_allow_out            = ["api.example.com"]
+  network_deny_out             = ["ALL_TRAFFIC"]
   network_mask_request_host    = "sandbox.example.com"
+  network_rules = {
+    "api.example.com" = [
+      {
+        headers = {
+          "X-E2B-Policy" = "terraform-managed"
+        }
+      }
+    ]
+  }
 
   metadata = {
     managed_by = "terraform"
@@ -67,6 +77,7 @@ resource "e2b_template" "example" {
   ready_cmd  = "true"
   cpu_count  = 2
   memory_mb  = 512
+  public     = false
 }
 ```
 
@@ -105,5 +116,11 @@ make generate
 ```
 
 See [docs/api-coverage.md](docs/api-coverage.md) for the current OpenAPI coverage map.
+
+## Governance Examples
+
+The provider can manage public-API-backed governance controls such as private template visibility, sandbox egress allow/deny lists, SOCKS5 egress proxy settings, per-domain header transform rules, lifecycle webhooks, and read-only metrics/log evidence.
+
+See [examples/use-cases/governance-baseline](examples/use-cases/governance-baseline) for a composed baseline.
 
 The [Azure self-hosting readiness example](examples/use-cases/azure-self-hosting-readiness) prepares Azure networking, storage, registry, identity, secrets, and logging resources for future E2B Azure BYOC/self-hosting work. It is a readiness example, not a claim that Azure BYOC is generally available.

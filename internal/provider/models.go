@@ -97,10 +97,27 @@ type sandboxLogEntryResponse struct {
 }
 
 type sandboxNetworkConfig struct {
-	AllowPublicTraffic *bool    `json:"allowPublicTraffic,omitempty"`
-	AllowOut           []string `json:"allowOut,omitempty"`
-	DenyOut            []string `json:"denyOut,omitempty"`
-	MaskRequestHost    string   `json:"maskRequestHost,omitempty"`
+	AllowPublicTraffic  *bool                           `json:"allowPublicTraffic,omitempty"`
+	AllowOut            []string                        `json:"allowOut,omitempty"`
+	DenyOut             []string                        `json:"denyOut,omitempty"`
+	EgressProxy         *sandboxEgressProxyConfig       `json:"egressProxy,omitempty"`
+	MaskRequestHost     string                          `json:"maskRequestHost,omitempty"`
+	Rules               map[string][]sandboxNetworkRule `json:"rules,omitempty"`
+	AllowInternetAccess *bool                           `json:"allow_internet_access,omitempty"`
+}
+
+type sandboxEgressProxyConfig struct {
+	Address  string `json:"address"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+type sandboxNetworkRule struct {
+	Transform *sandboxNetworkTransform `json:"transform,omitempty"`
+}
+
+type sandboxNetworkTransform struct {
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 type sandboxLifecycle struct {
@@ -166,6 +183,10 @@ type templateBuildStartRequest struct {
 	Force     *bool  `json:"force,omitempty"`
 	StartCmd  string `json:"startCmd,omitempty"`
 	ReadyCmd  string `json:"readyCmd,omitempty"`
+}
+
+type templateUpdateRequest struct {
+	Public *bool `json:"public,omitempty"`
 }
 
 type templateBuildStatusResponse struct {

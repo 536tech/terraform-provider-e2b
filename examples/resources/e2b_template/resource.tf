@@ -5,4 +5,5 @@ resource "e2b_template" "example" {
   ready_cmd  = "true"
   cpu_count  = 2
   memory_mb  = 512
+  public     = false
 }

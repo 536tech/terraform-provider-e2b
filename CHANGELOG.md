@@ -1,8 +1,11 @@
-## Unreleased
+## 0.2.0 (2026-06-24)
 
 FEATURES:
 
 - Added sandbox metrics, sandbox metric history, sandbox logs, and template alias data sources from the current E2B OpenAPI spec.
+- Added template visibility management through `e2b_template.public`.
+- Added sandbox governance controls for internet access updates, SOCKS5 egress proxy settings, and per-domain network header rules.
+- Added Azure self-hosting readiness and governance baseline examples.
 
 BREAKING CHANGES:
 

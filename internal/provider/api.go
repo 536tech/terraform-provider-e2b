@@ -210,6 +210,10 @@ func (c *e2bClient) getTemplateBuildStatus(ctx context.Context, templateID strin
 	return &result, nil
 }
 
+func (c *e2bClient) updateTemplate(ctx context.Context, templateID string, request templateUpdateRequest) error {
+	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/v2/templates/%s", url.PathEscape(templateID)), nil, request, nil)
+}
+
 func (c *e2bClient) waitForTemplateBuild(ctx context.Context, templateID string, buildID string, interval time.Duration) (*templateBuildStatusResponse, error) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

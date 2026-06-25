@@ -134,8 +134,12 @@ func (r *TemplateResource) Schema(ctx context.Context, req resource.SchemaReques
 				Computed:            true,
 			},
 			"public": schema.BoolAttribute{
-				MarkdownDescription: "Whether the template is public.",
+				MarkdownDescription: "Whether the template is public. When set, Terraform manages template visibility through the E2B template update API.",
+				Optional:            true,
 				Computed:            true,
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"aliases": schema.ListAttribute{
 				MarkdownDescription: "Template aliases.",
@@ -211,6 +215,7 @@ func (r *TemplateResource) Create(ctx context.Context, req resource.CreateReques
 		)
 		return
 	}
+	requestedPublic := data.Public
 
 	created, err := r.client.createTemplate(ctx, templateCreateRequest{
 		Name:     data.Name.ValueString(),
@@ -224,7 +229,6 @@ func (r *TemplateResource) Create(ctx context.Context, req resource.CreateReques
 
 	data.ID = types.StringValue(created.TemplateID)
 	data.BuildID = types.StringValue(created.BuildID)
-	data.Public = types.BoolValue(created.Public)
 	resp.Diagnostics.Append(data.applyCreatedTemplate(ctx, created)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -268,6 +272,21 @@ func (r *TemplateResource) Create(ctx context.Context, req resource.CreateReques
 	if buildStatus.Status != "" {
 		data.BuildStatus = types.StringValue(buildStatus.Status)
 	}
+	if !requestedPublic.IsNull() && !requestedPublic.IsUnknown() && requestedPublic.ValueBool() != template.Public {
+		if err := r.client.updateTemplate(ctx, created.TemplateID, templateUpdateRequest{Public: optionalBoolPointer(requestedPublic)}); err != nil {
+			addClientError(&resp.Diagnostics, "update template visibility", err)
+			return
+		}
+		template, err = r.client.getTemplate(ctx, created.TemplateID)
+		if err != nil {
+			addClientError(&resp.Diagnostics, "read updated template visibility", err)
+			return
+		}
+		resp.Diagnostics.Append(data.applyTemplate(ctx, template)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -302,10 +321,39 @@ func (r *TemplateResource) Read(ctx context.Context, req resource.ReadRequest, r
 }
 
 func (r *TemplateResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Template updates require replacement",
-		"The E2B template resource marks configurable attributes as ForceNew. Terraform should replace the template instead of updating it in place.",
-	)
+	var plan TemplateResourceModel
+	var state TemplateResourceModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	plan.ID = state.ID
+	if !plan.Public.Equal(state.Public) && !plan.Public.IsNull() && !plan.Public.IsUnknown() {
+		if err := r.client.updateTemplate(ctx, state.ID.ValueString(), templateUpdateRequest{Public: optionalBoolPointer(plan.Public)}); err != nil {
+			addClientError(&resp.Diagnostics, "update template visibility", err)
+			return
+		}
+	}
+
+	template, err := r.client.getTemplate(ctx, state.ID.ValueString())
+	if err != nil {
+		addClientError(&resp.Diagnostics, "read updated template", err)
+		return
+	}
+
+	resp.Diagnostics.Append(plan.applyTemplate(ctx, template)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.refreshTemplateBuildStatus(ctx, &plan); err != nil {
+		addClientError(&resp.Diagnostics, "read template build status", err)
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *TemplateResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

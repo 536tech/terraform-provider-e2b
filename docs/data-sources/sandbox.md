@@ -42,12 +42,24 @@ data "e2b_sandbox" "example" {
 - `network_allow_out` (Set of String) Destinations that sandbox egress traffic is allowed to reach.
 - `network_allow_public_traffic` (Boolean) Whether the sandbox may receive public traffic.
 - `network_deny_out` (Set of String) CIDR blocks, IP addresses, or `ALL_TRAFFIC` entries that sandbox egress traffic is denied from reaching.
+- `network_egress_proxy` (Attributes) SOCKS5 proxy configured for sandbox egress traffic. (see [below for nested schema](#nestedatt--network_egress_proxy))
 - `network_mask_request_host` (String) Host value E2B masks on incoming sandbox requests.
+- `network_rules` (Map of List of Object) Per-domain egress HTTP/HTTPS transform rules.
 - `started_at` (String) Timestamp when the sandbox started.
 - `state` (String) Sandbox state.
 - `template_id` (String) Template ID used to create the sandbox.
 - `traffic_access_token` (String, Sensitive) Access token for authenticated sandbox traffic when secure sandbox mode is enabled.
 - `volume_mounts` (Attributes List) Volumes mounted into the sandbox. (see [below for nested schema](#nestedatt--volume_mounts))
+
+<a id="nestedatt--network_egress_proxy"></a>
+### Nested Schema for `network_egress_proxy`
+
+Read-Only:
+
+- `address` (String) SOCKS5 proxy address in `host:port` format.
+- `password` (String, Sensitive) SOCKS5 password, when returned by E2B.
+- `username` (String) SOCKS5 username.
+
 
 <a id="nestedatt--volume_mounts"></a>
 ### Nested Schema for `volume_mounts`
