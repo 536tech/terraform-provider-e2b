@@ -54,6 +54,14 @@ func optionalInt64Value(value types.Int64) int64 {
 	return value.ValueInt64()
 }
 
+func optionalStringValue(value types.String) string {
+	if value.IsNull() || value.IsUnknown() {
+		return ""
+	}
+
+	return value.ValueString()
+}
+
 func optionalBoolPointer(value types.Bool) *bool {
 	if value.IsNull() || value.IsUnknown() {
 		return nil

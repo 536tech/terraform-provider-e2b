@@ -13,15 +13,36 @@ Manages a running E2B sandbox.
 ## Example Usage
 
 ```terraform
+variable "egress_proxy_password" {
+  description = "Optional SOCKS5 proxy password for sandbox egress."
+  type        = string
+  sensitive   = true
+}
+
 resource "e2b_sandbox" "example" {
   template_id = "base"
   timeout     = 300
   auto_resume = true
 
+  allow_internet_access        = true
   network_allow_public_traffic = false
-  network_allow_out            = ["8.8.8.8/32"]
-  network_deny_out             = ["203.0.113.0/24"]
-  network_mask_request_host    = "sandbox.example.com"
+  network_allow_out            = ["api.example.com"]
+  network_deny_out             = ["ALL_TRAFFIC"]
+  network_egress_proxy = {
+    address  = "proxy.example.com:1080"
+    username = "sandbox-egress"
+    password = var.egress_proxy_password
+  }
+  network_mask_request_host = "sandbox.example.com"
+  network_rules = {
+    "api.example.com" = [
+      {
+        headers = {
+          "X-E2B-Policy" = "terraform-managed"
+        }
+      }
+    ]
+  }
 
   volume_mounts = [
     {
@@ -53,7 +74,9 @@ resource "e2b_sandbox" "example" {
 - `network_allow_out` (Set of String) Destinations that sandbox egress traffic is allowed to reach. Entries can be CIDR blocks, IP addresses, or domain names. When allowing domains, E2B requires `network_deny_out` to include `ALL_TRAFFIC`.
 - `network_allow_public_traffic` (Boolean) Whether the sandbox may receive public traffic.
 - `network_deny_out` (Set of String) CIDR blocks or IP addresses that sandbox egress traffic is denied from reaching. Use `ALL_TRAFFIC` when pairing domain allow rules with a default-deny policy.
+- `network_egress_proxy` (Attributes) SOCKS5 proxy for sandbox egress traffic, applied after allow and deny filtering. (see [below for nested schema](#nestedatt--network_egress_proxy))
 - `network_mask_request_host` (String) Host value E2B should mask on incoming sandbox requests.
+- `network_rules` (Map of List of Object) Per-domain egress HTTP/HTTPS transform rules. Map keys are domains, and each value is a list of rules that may inject or override request headers. Domains listed here still need to be allowed by `network_allow_out`.
 - `secure` (Boolean) Whether E2B should secure system communication with the sandbox and return access tokens.
 - `timeout` (Number) Sandbox time to live in seconds.
 - `volume_mounts` (Attributes List) Volumes to mount into the sandbox at creation time. (see [below for nested schema](#nestedatt--volume_mounts))
@@ -74,6 +97,19 @@ resource "e2b_sandbox" "example" {
 - `started_at` (String) Timestamp when the sandbox started.
 - `state` (String) Current sandbox state.
 - `traffic_access_token` (String, Sensitive) Access token for authenticated sandbox traffic when secure sandbox mode is enabled.
+
+<a id="nestedatt--network_egress_proxy"></a>
+### Nested Schema for `network_egress_proxy`
+
+Required:
+
+- `address` (String) SOCKS5 proxy address in `host:port` format.
+
+Optional:
+
+- `password` (String, Sensitive) Optional SOCKS5 password.
+- `username` (String) Optional SOCKS5 username.
+
 
 <a id="nestedatt--volume_mounts"></a>
 ### Nested Schema for `volume_mounts`

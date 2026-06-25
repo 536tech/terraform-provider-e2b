@@ -66,7 +66,21 @@ func TestClientCreateSandbox(t *testing.T) {
 		},
 		Network: &sandboxNetworkConfig{
 			AllowPublicTraffic: &allowPublicTraffic,
-			MaskRequestHost:    "sandbox.example.com",
+			EgressProxy: &sandboxEgressProxyConfig{
+				Address:  "proxy.example.com:1080",
+				Username: "agent",
+				Password: "secret",
+			},
+			MaskRequestHost: "sandbox.example.com",
+			Rules: map[string][]sandboxNetworkRule{
+				"api.example.com": {
+					{
+						Transform: &sandboxNetworkTransform{
+							Headers: map[string]string{"X-E2B-Policy": "terraform"},
+						},
+					},
+				},
+			},
 		},
 		VolumeMounts: []sandboxVolumeMount{
 			{Name: "cache", Path: "/mnt/cache"},
@@ -96,6 +110,12 @@ func TestClientCreateSandbox(t *testing.T) {
 	}
 	if gotRequest.Network == nil || gotRequest.Network.MaskRequestHost != "sandbox.example.com" {
 		t.Fatalf("unexpected mask request host: %#v", gotRequest.Network)
+	}
+	if gotRequest.Network == nil || gotRequest.Network.EgressProxy == nil || gotRequest.Network.EgressProxy.Address != "proxy.example.com:1080" || gotRequest.Network.EgressProxy.Username != "agent" || gotRequest.Network.EgressProxy.Password != "secret" {
+		t.Fatalf("unexpected egress proxy: %#v", gotRequest.Network)
+	}
+	if gotRequest.Network == nil || len(gotRequest.Network.Rules["api.example.com"]) != 1 || gotRequest.Network.Rules["api.example.com"][0].Transform.Headers["X-E2B-Policy"] != "terraform" {
+		t.Fatalf("unexpected network rules: %#v", gotRequest.Network)
 	}
 	if len(gotRequest.VolumeMounts) != 1 || gotRequest.VolumeMounts[0].Name != "cache" || gotRequest.VolumeMounts[0].Path != "/mnt/cache" {
 		t.Fatalf("unexpected volume mounts: %#v", gotRequest.VolumeMounts)
@@ -127,6 +147,15 @@ func TestClientUpdateSandboxNetwork(t *testing.T) {
 		if len(gotRequest.DenyOut) != 1 || gotRequest.DenyOut[0] != "203.0.113.0/24" {
 			t.Fatalf("unexpected deny out: %#v", gotRequest.DenyOut)
 		}
+		if gotRequest.EgressProxy == nil || gotRequest.EgressProxy.Address != "proxy.example.com:1080" {
+			t.Fatalf("unexpected egress proxy: %#v", gotRequest.EgressProxy)
+		}
+		if len(gotRequest.Rules["api.example.com"]) != 1 || gotRequest.Rules["api.example.com"][0].Transform.Headers["X-E2B-Policy"] != "terraform" {
+			t.Fatalf("unexpected rules: %#v", gotRequest.Rules)
+		}
+		if gotRequest.AllowInternetAccess == nil || *gotRequest.AllowInternetAccess {
+			t.Fatalf("unexpected allow internet access: %#v", gotRequest.AllowInternetAccess)
+		}
 
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -134,9 +163,23 @@ func TestClientUpdateSandboxNetwork(t *testing.T) {
 
 	client := newTestAPIKeyClient(t, server.URL)
 
+	allowInternetAccess := false
 	err := client.updateSandboxNetwork(context.Background(), "sbx_123", sandboxNetworkConfig{
 		AllowOut: []string{"8.8.8.8/32"},
 		DenyOut:  []string{"203.0.113.0/24"},
+		EgressProxy: &sandboxEgressProxyConfig{
+			Address: "proxy.example.com:1080",
+		},
+		Rules: map[string][]sandboxNetworkRule{
+			"api.example.com": {
+				{
+					Transform: &sandboxNetworkTransform{
+						Headers: map[string]string{"X-E2B-Policy": "terraform"},
+					},
+				},
+			},
+		},
+		AllowInternetAccess: &allowInternetAccess,
 	})
 	if err != nil {
 		t.Fatalf("update sandbox network: %s", err)
@@ -205,100 +248,96 @@ func TestClientListSandboxesEncodesFilters(t *testing.T) {
 	}
 }
 
-func TestClientCreateAPIKeyUsesTeamBearerAuth(t *testing.T) {
+func TestClientSandboxObservability(t *testing.T) {
 	t.Parallel()
 
-	var gotRequest apiKeyRequest
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api-keys" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sandboxes/metrics":
+			if got := r.URL.Query().Get("sandbox_ids"); got != "sbx_1,sbx_2" {
+				t.Fatalf("unexpected sandbox_ids: %q", got)
+			}
+			_, _ = w.Write([]byte(`{"sandboxes":{"sbx_1":{"timestamp":"2026-06-24T00:00:00Z","timestampUnix":1782259200,"cpuCount":2,"cpuUsedPct":12.5,"memUsed":1024,"memTotal":2048,"memCache":256,"diskUsed":4096,"diskTotal":8192}}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/sandboxes/sbx_1/metrics":
+			if got := r.URL.Query().Get("start"); got != "10" {
+				t.Fatalf("unexpected start: %q", got)
+			}
+			if got := r.URL.Query().Get("end"); got != "20" {
+				t.Fatalf("unexpected end: %q", got)
+			}
+			_, _ = w.Write([]byte(`[{"timestamp":"2026-06-24T00:00:00Z","timestampUnix":1782259200,"cpuCount":2,"cpuUsedPct":12.5,"memUsed":1024,"memTotal":2048,"memCache":256,"diskUsed":4096,"diskTotal":8192}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/sandboxes/sbx_1/logs":
+			if got := r.URL.Query().Get("cursor"); got != "100" {
+				t.Fatalf("unexpected cursor: %q", got)
+			}
+			if got := r.URL.Query().Get("limit"); got != "50" {
+				t.Fatalf("unexpected limit: %q", got)
+			}
+			if got := r.URL.Query().Get("direction"); got != "backward" {
+				t.Fatalf("unexpected direction: %q", got)
+			}
+			if got := r.URL.Query().Get("level"); got != "warn" {
+				t.Fatalf("unexpected level: %q", got)
+			}
+			if got := r.URL.Query().Get("search"); got != "ready" {
+				t.Fatalf("unexpected search: %q", got)
+			}
+			_, _ = w.Write([]byte(`{"logs":[{"timestamp":"2026-06-24T00:00:01Z","level":"info","message":"ready","fields":{"step":"boot"}}]}`))
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("unexpected method: %s", r.Method)
-		}
-		if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
-			t.Fatalf("unexpected authorization header: %q", got)
-		}
-		if got := r.Header.Get("X-Team-ID"); got != "team_123" {
-			t.Fatalf("unexpected team id header: %q", got)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
-			t.Fatalf("decode request: %s", err)
-		}
-
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"id":"key_123","name":"ci","key":"e2b_live_secret","createdAt":"2026-06-18T00:00:00Z"}`))
 	}))
 	defer server.Close()
 
-	client, err := newE2BClientWithConfig(server.URL, e2bClientConfig{
-		AccessToken: "access-token",
-		TeamID:      "team_123",
-		Version:     "test",
-	})
+	client := newTestAPIKeyClient(t, server.URL)
+
+	latest, err := client.listSandboxesMetrics(context.Background(), []string{"sbx_1", "sbx_2"})
 	if err != nil {
-		t.Fatalf("new client: %s", err)
+		t.Fatalf("list sandbox metrics: %s", err)
+	}
+	history, err := client.getSandboxMetrics(context.Background(), "sbx_1", 10, 20)
+	if err != nil {
+		t.Fatalf("get sandbox metrics: %s", err)
+	}
+	logs, err := client.getSandboxLogs(context.Background(), "sbx_1", 100, 50, "backward", "warn", "ready")
+	if err != nil {
+		t.Fatalf("get sandbox logs: %s", err)
 	}
 
-	apiKey, err := client.createAPIKey(context.Background(), "ci")
-	if err != nil {
-		t.Fatalf("create api key: %s", err)
+	if latest["sbx_1"].CPUUsedPct != 12.5 {
+		t.Fatalf("unexpected latest metrics: %#v", latest)
 	}
-
-	if gotRequest.Name != "ci" {
-		t.Fatalf("unexpected api key name: %q", gotRequest.Name)
+	if len(history) != 1 || history[0].DiskTotal != 8192 {
+		t.Fatalf("unexpected metric history: %#v", history)
 	}
-	if apiKey.ID != "key_123" || apiKey.Key != "e2b_live_secret" {
-		t.Fatalf("unexpected api key response: %#v", apiKey)
+	if len(logs) != 1 || logs[0].Fields["step"] != "boot" {
+		t.Fatalf("unexpected logs: %#v", logs)
 	}
 }
 
-func TestClientCreateAccessTokenUsesBearerAuth(t *testing.T) {
+func TestClientGetTemplateAlias(t *testing.T) {
 	t.Parallel()
 
-	var gotRequest accessTokenRequest
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/access-tokens" {
+		if r.URL.Path != "/templates/aliases/base" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodGet {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer access-token" {
-			t.Fatalf("unexpected authorization header: %q", got)
-		}
-		if got := r.Header.Get("X-Team-ID"); got != "" {
-			t.Fatalf("unexpected team id header: %q", got)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
-			t.Fatalf("decode request: %s", err)
-		}
 
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"id":"tok_123","name":"automation","token":"e2b_access_secret","createdAt":"2026-06-18T00:00:00Z"}`))
+		_, _ = w.Write([]byte(`{"templateID":"tpl_123","public":true}`))
 	}))
 	defer server.Close()
 
-	client, err := newE2BClientWithConfig(server.URL, e2bClientConfig{
-		AccessToken: "access-token",
-		Version:     "test",
-	})
-	if err != nil {
-		t.Fatalf("new client: %s", err)
-	}
+	client := newTestAPIKeyClient(t, server.URL)
 
-	token, err := client.createAccessToken(context.Background(), "automation")
+	alias, err := client.getTemplateAlias(context.Background(), "base")
 	if err != nil {
-		t.Fatalf("create access token: %s", err)
+		t.Fatalf("get template alias: %s", err)
 	}
-
-	if gotRequest.Name != "automation" {
-		t.Fatalf("unexpected access token name: %q", gotRequest.Name)
-	}
-	if token.ID != "tok_123" || token.Token != "e2b_access_secret" {
-		t.Fatalf("unexpected access token response: %#v", token)
+	if alias.TemplateID != "tpl_123" || !alias.Public {
+		t.Fatalf("unexpected alias response: %#v", alias)
 	}
 }
 
@@ -520,6 +559,7 @@ func TestClientTemplateBuildLifecycle(t *testing.T) {
 
 	var gotCreate templateCreateRequest
 	var gotBuild templateBuildStartRequest
+	var gotUpdate templateUpdateRequest
 	var deleted bool
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -540,6 +580,11 @@ func TestClientTemplateBuildLifecycle(t *testing.T) {
 			_, _ = w.Write([]byte(`{}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/templates/tpl_123/builds/bld_123/status":
 			_, _ = w.Write([]byte(`{"templateID":"tpl_123","buildID":"bld_123","status":"ready","logs":[],"logEntries":[]}`))
+		case r.Method == http.MethodPatch && r.URL.Path == "/v2/templates/tpl_123":
+			if err := json.NewDecoder(r.Body).Decode(&gotUpdate); err != nil {
+				t.Fatalf("decode update request: %s", err)
+			}
+			_, _ = w.Write([]byte(`{"names":["team/tf-acc"]}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/templates/tpl_123":
 			deleted = true
 			w.WriteHeader(http.StatusNoContent)
@@ -604,6 +649,13 @@ func TestClientTemplateBuildLifecycle(t *testing.T) {
 	}
 	if status.Status != "ready" {
 		t.Fatalf("unexpected build status: %q", status.Status)
+	}
+	public := true
+	if err := client.updateTemplate(context.Background(), created.TemplateID, templateUpdateRequest{Public: &public}); err != nil {
+		t.Fatalf("update template: %s", err)
+	}
+	if gotUpdate.Public == nil || !*gotUpdate.Public {
+		t.Fatalf("unexpected update request: %#v", gotUpdate)
 	}
 	if !deleted {
 		t.Fatalf("expected template to be deleted")

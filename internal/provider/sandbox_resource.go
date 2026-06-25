@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -41,7 +42,9 @@ type SandboxResourceModel struct {
 	NetworkAllowPublicTraffic types.Bool                `tfsdk:"network_allow_public_traffic"`
 	NetworkAllowOut           types.Set                 `tfsdk:"network_allow_out"`
 	NetworkDenyOut            types.Set                 `tfsdk:"network_deny_out"`
+	NetworkEgressProxy        *SandboxEgressProxyModel  `tfsdk:"network_egress_proxy"`
 	NetworkMaskRequestHost    types.String              `tfsdk:"network_mask_request_host"`
+	NetworkRules              types.Map                 `tfsdk:"network_rules"`
 	VolumeMounts              []SandboxVolumeMountModel `tfsdk:"volume_mounts"`
 	Metadata                  types.Map                 `tfsdk:"metadata"`
 	EnvVars                   types.Map                 `tfsdk:"env_vars"`
@@ -63,6 +66,16 @@ type SandboxResourceModel struct {
 type SandboxVolumeMountModel struct {
 	Name types.String `tfsdk:"name"`
 	Path types.String `tfsdk:"path"`
+}
+
+type SandboxEgressProxyModel struct {
+	Address  types.String `tfsdk:"address"`
+	Username types.String `tfsdk:"username"`
+	Password types.String `tfsdk:"password"`
+}
+
+type SandboxNetworkRuleModel struct {
+	Headers types.Map `tfsdk:"headers"`
 }
 
 func (r *SandboxResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -115,15 +128,18 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 			"allow_internet_access": schema.BoolAttribute{
 				MarkdownDescription: "Whether the sandbox can access the internet.",
 				Optional:            true,
+				Computed:            true,
 				PlanModifiers: []planmodifier.Bool{
-					boolplanmodifier.RequiresReplace(),
+					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"network_allow_public_traffic": schema.BoolAttribute{
 				MarkdownDescription: "Whether the sandbox may receive public traffic.",
 				Optional:            true,
+				Computed:            true,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.RequiresReplace(),
+					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"network_allow_out": schema.SetAttribute{
@@ -136,12 +152,36 @@ func (r *SandboxResource) Schema(ctx context.Context, req resource.SchemaRequest
 				ElementType:         types.StringType,
 				Optional:            true,
 			},
+			"network_egress_proxy": schema.SingleNestedAttribute{
+				MarkdownDescription: "SOCKS5 proxy for sandbox egress traffic, applied after allow and deny filtering.",
+				Optional:            true,
+				Attributes: map[string]schema.Attribute{
+					"address": schema.StringAttribute{
+						MarkdownDescription: "SOCKS5 proxy address in `host:port` format.",
+						Required:            true,
+					},
+					"username": schema.StringAttribute{
+						MarkdownDescription: "Optional SOCKS5 username.",
+						Optional:            true,
+					},
+					"password": schema.StringAttribute{
+						MarkdownDescription: "Optional SOCKS5 password.",
+						Optional:            true,
+						Sensitive:           true,
+					},
+				},
+			},
 			"network_mask_request_host": schema.StringAttribute{
 				MarkdownDescription: "Host value E2B should mask on incoming sandbox requests.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+			},
+			"network_rules": schema.MapAttribute{
+				MarkdownDescription: "Per-domain egress HTTP/HTTPS transform rules. Map keys are domains, and each value is a list of rules that may inject or override request headers. Domains listed here still need to be allowed by `network_allow_out`.",
+				ElementType:         sandboxNetworkRuleListType(),
+				Optional:            true,
 			},
 			"volume_mounts": schema.ListNestedAttribute{
 				MarkdownDescription: "Volumes to mount into the sandbox at creation time.",
@@ -350,7 +390,7 @@ func (r *SandboxResource) Update(ctx context.Context, req resource.UpdateRequest
 		}
 	}
 
-	if !plan.NetworkAllowOut.Equal(state.NetworkAllowOut) || !plan.NetworkDenyOut.Equal(state.NetworkDenyOut) {
+	if sandboxNetworkNeedsUpdate(plan, state) {
 		network, diags := plan.sandboxNetworkConfig(ctx, true)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
@@ -359,6 +399,9 @@ func (r *SandboxResource) Update(ctx context.Context, req resource.UpdateRequest
 
 		if network == nil {
 			network = &sandboxNetworkConfig{}
+		}
+		if !plan.AllowInternetAccess.IsNull() && !plan.AllowInternetAccess.IsUnknown() {
+			network.AllowInternetAccess = optionalBoolPointer(plan.AllowInternetAccess)
 		}
 
 		if err := r.client.updateSandboxNetwork(ctx, sandboxID, *network); err != nil {
@@ -433,23 +476,38 @@ func (m *SandboxResourceModel) applySandboxDetail(ctx context.Context, detail *s
 		m.Metadata = metadata
 	}
 
-	if detail.Network != nil {
-		if !m.NetworkAllowPublicTraffic.IsNull() || detail.Network.AllowPublicTraffic != nil {
-			m.NetworkAllowPublicTraffic = boolPointerValue(detail.Network.AllowPublicTraffic)
+	if detail.Network == nil {
+		if m.NetworkAllowPublicTraffic.IsUnknown() {
+			m.NetworkAllowPublicTraffic = types.BoolNull()
 		}
-		if !m.NetworkMaskRequestHost.IsNull() || detail.Network.MaskRequestHost != "" {
-			m.NetworkMaskRequestHost = types.StringValue(detail.Network.MaskRequestHost)
-		}
-		allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
-		diags.Append(setDiags...)
-		denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
-		diags.Append(setDiags...)
-		if !m.NetworkAllowOut.IsNull() || len(detail.Network.AllowOut) > 0 {
-			m.NetworkAllowOut = allowOut
-		}
-		if !m.NetworkDenyOut.IsNull() || len(detail.Network.DenyOut) > 0 {
-			m.NetworkDenyOut = denyOut
-		}
+		return diags
+	}
+
+	if !m.NetworkAllowPublicTraffic.IsNull() || detail.Network.AllowPublicTraffic != nil {
+		m.NetworkAllowPublicTraffic = boolPointerValue(detail.Network.AllowPublicTraffic)
+	}
+	if !m.NetworkMaskRequestHost.IsNull() || detail.Network.MaskRequestHost != "" {
+		m.NetworkMaskRequestHost = types.StringValue(detail.Network.MaskRequestHost)
+	}
+	allowOut, setDiags := setStringValue(ctx, detail.Network.AllowOut)
+	diags.Append(setDiags...)
+	denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
+	diags.Append(setDiags...)
+	if !m.NetworkAllowOut.IsNull() || len(detail.Network.AllowOut) > 0 {
+		m.NetworkAllowOut = allowOut
+	}
+	if !m.NetworkDenyOut.IsNull() || len(detail.Network.DenyOut) > 0 {
+		m.NetworkDenyOut = denyOut
+	}
+	if m.NetworkEgressProxy != nil || detail.Network.EgressProxy != nil {
+		m.NetworkEgressProxy = flattenSandboxEgressProxy(detail.Network.EgressProxy, m.NetworkEgressProxy)
+	}
+	if detail.Network.Rules != nil {
+		rules, rulesDiags := sandboxNetworkRulesValue(ctx, detail.Network.Rules)
+		diags.Append(rulesDiags...)
+		m.NetworkRules = rules
+	} else if m.NetworkRules.IsUnknown() {
+		m.NetworkRules = types.MapNull(sandboxNetworkRuleListType())
 	}
 
 	return diags
@@ -474,6 +532,11 @@ func (m SandboxResourceModel) sandboxNetworkConfig(ctx context.Context, force bo
 		hasNetwork = true
 	}
 
+	if m.NetworkEgressProxy != nil {
+		config.EgressProxy = sandboxEgressProxyFromTerraform(m.NetworkEgressProxy)
+		hasNetwork = true
+	}
+
 	if !m.NetworkAllowPublicTraffic.IsNull() && !m.NetworkAllowPublicTraffic.IsUnknown() {
 		config.AllowPublicTraffic = optionalBoolPointer(m.NetworkAllowPublicTraffic)
 		hasNetwork = true
@@ -484,11 +547,154 @@ func (m SandboxResourceModel) sandboxNetworkConfig(ctx context.Context, force bo
 		hasNetwork = true
 	}
 
+	if !m.NetworkRules.IsNull() && !m.NetworkRules.IsUnknown() {
+		rules, ruleDiags := sandboxNetworkRulesFromTerraform(ctx, m.NetworkRules)
+		diags.Append(ruleDiags...)
+		config.Rules = rules
+		hasNetwork = true
+	}
+
 	if !hasNetwork {
 		return nil, diags
 	}
 
 	return config, diags
+}
+
+func sandboxNetworkNeedsUpdate(plan SandboxResourceModel, state SandboxResourceModel) bool {
+	return !plan.AllowInternetAccess.Equal(state.AllowInternetAccess) ||
+		!plan.NetworkAllowOut.Equal(state.NetworkAllowOut) ||
+		!plan.NetworkDenyOut.Equal(state.NetworkDenyOut) ||
+		!sandboxEgressProxyModelsEqual(plan.NetworkEgressProxy, state.NetworkEgressProxy) ||
+		!plan.NetworkRules.Equal(state.NetworkRules)
+}
+
+func sandboxEgressProxyFromTerraform(model *SandboxEgressProxyModel) *sandboxEgressProxyConfig {
+	if model == nil {
+		return nil
+	}
+
+	config := &sandboxEgressProxyConfig{}
+	if !model.Address.IsNull() && !model.Address.IsUnknown() {
+		config.Address = model.Address.ValueString()
+	}
+	if !model.Username.IsNull() && !model.Username.IsUnknown() {
+		config.Username = model.Username.ValueString()
+	}
+	if !model.Password.IsNull() && !model.Password.IsUnknown() {
+		config.Password = model.Password.ValueString()
+	}
+
+	return config
+}
+
+func flattenSandboxEgressProxy(config *sandboxEgressProxyConfig, prior *SandboxEgressProxyModel) *SandboxEgressProxyModel {
+	if config == nil {
+		return prior
+	}
+
+	result := &SandboxEgressProxyModel{
+		Address:  types.StringValue(config.Address),
+		Username: types.StringNull(),
+		Password: types.StringNull(),
+	}
+	if config.Username != "" {
+		result.Username = types.StringValue(config.Username)
+	} else if prior != nil {
+		result.Username = prior.Username
+	}
+	if config.Password != "" {
+		result.Password = types.StringValue(config.Password)
+	} else if prior != nil {
+		result.Password = prior.Password
+	}
+
+	return result
+}
+
+func sandboxEgressProxyModelsEqual(a *SandboxEgressProxyModel, b *SandboxEgressProxyModel) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+
+	return a.Address.Equal(b.Address) && a.Username.Equal(b.Username) && a.Password.Equal(b.Password)
+}
+
+func sandboxNetworkRulesFromTerraform(ctx context.Context, value types.Map) (map[string][]sandboxNetworkRule, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	if value.IsNull() || value.IsUnknown() {
+		return nil, diags
+	}
+
+	result := make(map[string][]sandboxNetworkRule, len(value.Elements()))
+	for domain, element := range value.Elements() {
+		list, ok := element.(types.List)
+		if !ok {
+			diags.AddError(
+				"Unexpected Network Rule Type",
+				fmt.Sprintf("Expected list value for network_rules[%q], got %T.", domain, element),
+			)
+			continue
+		}
+
+		var ruleModels []SandboxNetworkRuleModel
+		diags.Append(list.ElementsAs(ctx, &ruleModels, false)...)
+		if diags.HasError() {
+			continue
+		}
+
+		rules := make([]sandboxNetworkRule, 0, len(ruleModels))
+		for _, ruleModel := range ruleModels {
+			headers, headerDiags := mapStringFromTerraform(ctx, ruleModel.Headers)
+			diags.Append(headerDiags...)
+			if headerDiags.HasError() {
+				continue
+			}
+			rules = append(rules, sandboxNetworkRule{
+				Transform: &sandboxNetworkTransform{
+					Headers: headers,
+				},
+			})
+		}
+		result[domain] = rules
+	}
+
+	return result, diags
+}
+
+func sandboxNetworkRulesValue(ctx context.Context, rules map[string][]sandboxNetworkRule) (types.Map, diag.Diagnostics) {
+	if len(rules) == 0 {
+		return types.MapNull(sandboxNetworkRuleListType()), nil
+	}
+
+	model := make(map[string][]SandboxNetworkRuleModel, len(rules))
+	var diags diag.Diagnostics
+	for domain, domainRules := range rules {
+		modelRules := make([]SandboxNetworkRuleModel, 0, len(domainRules))
+		for _, rule := range domainRules {
+			headers := map[string]string(nil)
+			if rule.Transform != nil {
+				headers = rule.Transform.Headers
+			}
+			headerValue, headerDiags := mapStringValue(ctx, headers)
+			diags.Append(headerDiags...)
+			modelRules = append(modelRules, SandboxNetworkRuleModel{
+				Headers: headerValue,
+			})
+		}
+		model[domain] = modelRules
+	}
+	if diags.HasError() {
+		return types.MapUnknown(sandboxNetworkRuleListType()), diags
+	}
+
+	value, mapDiags := types.MapValueFrom(ctx, sandboxNetworkRuleListType(), model)
+	diags.Append(mapDiags...)
+	return value, diags
+}
+
+func sandboxNetworkRuleListType() attr.Type {
+	return types.ListType{ElemType: types.ObjectType{AttrTypes: map[string]attr.Type{"headers": types.MapType{ElemType: types.StringType}}}}
 }
 
 func sandboxAutoResumeFromTerraform(value types.Bool) *sandboxAutoResume {

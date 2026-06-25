@@ -41,6 +41,8 @@ type SandboxDataSourceModel struct {
 	AllowInternetAccess       types.Bool                `tfsdk:"allow_internet_access"`
 	NetworkAllowPublicTraffic types.Bool                `tfsdk:"network_allow_public_traffic"`
 	NetworkMaskRequestHost    types.String              `tfsdk:"network_mask_request_host"`
+	NetworkEgressProxy        *SandboxEgressProxyModel  `tfsdk:"network_egress_proxy"`
+	NetworkRules              types.Map                 `tfsdk:"network_rules"`
 	LifecycleAutoResume       types.Bool                `tfsdk:"lifecycle_auto_resume"`
 	LifecycleOnTimeout        types.String              `tfsdk:"lifecycle_on_timeout"`
 	CPUCount                  types.Int64               `tfsdk:"cpu_count"`
@@ -251,6 +253,8 @@ func (m *SandboxDataSourceModel) applySandboxDetail(ctx context.Context, detail 
 	if detail.Network == nil {
 		m.NetworkAllowPublicTraffic = types.BoolNull()
 		m.NetworkMaskRequestHost = types.StringNull()
+		m.NetworkEgressProxy = nil
+		m.NetworkRules = types.MapNull(sandboxNetworkRuleListType())
 		m.NetworkAllowOut = types.SetNull(types.StringType)
 		m.NetworkDenyOut = types.SetNull(types.StringType)
 		return diags
@@ -270,6 +274,10 @@ func (m *SandboxDataSourceModel) applySandboxDetail(ctx context.Context, detail 
 	denyOut, setDiags := setStringValue(ctx, detail.Network.DenyOut)
 	diags.Append(setDiags...)
 	m.NetworkDenyOut = denyOut
+	m.NetworkEgressProxy = flattenSandboxEgressProxy(detail.Network.EgressProxy, nil)
+	rules, rulesDiags := sandboxNetworkRulesValue(ctx, detail.Network.Rules)
+	diags.Append(rulesDiags...)
+	m.NetworkRules = rules
 
 	return diags
 }
@@ -341,6 +349,30 @@ func sandboxDetailAttributes(idRequired bool) map[string]schema.Attribute {
 	attributes["network_deny_out"] = schema.SetAttribute{
 		MarkdownDescription: "CIDR blocks, IP addresses, or `ALL_TRAFFIC` entries that sandbox egress traffic is denied from reaching.",
 		ElementType:         types.StringType,
+		Computed:            true,
+	}
+	attributes["network_egress_proxy"] = schema.SingleNestedAttribute{
+		MarkdownDescription: "SOCKS5 proxy configured for sandbox egress traffic.",
+		Computed:            true,
+		Attributes: map[string]schema.Attribute{
+			"address": schema.StringAttribute{
+				MarkdownDescription: "SOCKS5 proxy address in `host:port` format.",
+				Computed:            true,
+			},
+			"username": schema.StringAttribute{
+				MarkdownDescription: "SOCKS5 username.",
+				Computed:            true,
+			},
+			"password": schema.StringAttribute{
+				MarkdownDescription: "SOCKS5 password, when returned by E2B.",
+				Computed:            true,
+				Sensitive:           true,
+			},
+		},
+	}
+	attributes["network_rules"] = schema.MapAttribute{
+		MarkdownDescription: "Per-domain egress HTTP/HTTPS transform rules.",
+		ElementType:         sandboxNetworkRuleListType(),
 		Computed:            true,
 	}
 	attributes["lifecycle_auto_resume"] = schema.BoolAttribute{

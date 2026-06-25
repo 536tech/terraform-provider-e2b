@@ -34,14 +34,13 @@ func TestDataSourcesHaveResourceCounterpartOrReadOnlyAPI(t *testing.T) {
 	}
 
 	counterparts := map[string]string{
-		"e2b_api_key":            "e2b_api_key",
-		"e2b_api_keys":           "e2b_api_key",
 		"e2b_lifecycle_webhook":  "e2b_lifecycle_webhook",
 		"e2b_lifecycle_webhooks": "e2b_lifecycle_webhook",
 		"e2b_sandbox":            "e2b_sandbox",
 		"e2b_sandboxes":          "e2b_sandbox",
 		"e2b_snapshots":          "e2b_snapshot",
 		"e2b_template":           "e2b_template",
+		"e2b_template_alias":     "e2b_template",
 		"e2b_template_tags":      "e2b_template_tags",
 		"e2b_templates":          "e2b_template",
 		"e2b_volume":             "e2b_volume",
@@ -49,10 +48,12 @@ func TestDataSourcesHaveResourceCounterpartOrReadOnlyAPI(t *testing.T) {
 	}
 
 	readOnlyAPIDataSources := map[string]string{
-		"e2b_lifecycle_events": "E2B exposes lifecycle events as GET-only event history.",
-		"e2b_team_metric_max":  "E2B exposes team metric maximums as GET-only telemetry.",
-		"e2b_team_metrics":     "E2B exposes team metrics as GET-only telemetry.",
-		"e2b_teams":            "E2B exposes teams as GET-only identity context.",
+		"e2b_lifecycle_events":       "E2B exposes lifecycle events as GET-only event history.",
+		"e2b_sandbox_logs":           "E2B exposes sandbox logs as GET-only telemetry.",
+		"e2b_sandbox_metrics":        "E2B exposes sandbox metrics as GET-only telemetry.",
+		"e2b_sandbox_metric_history": "E2B exposes sandbox metric history as GET-only telemetry.",
+		"e2b_team_metric_max":        "E2B exposes team metric maximums as GET-only telemetry.",
+		"e2b_team_metrics":           "E2B exposes team metrics as GET-only telemetry.",
 	}
 
 	for _, newDataSource := range provider.DataSources(ctx) {

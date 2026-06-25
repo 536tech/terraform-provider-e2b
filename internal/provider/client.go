@@ -16,12 +16,10 @@ import (
 )
 
 type e2bClient struct {
-	baseURL     *url.URL
-	apiKey      string
-	accessToken string
-	teamID      string
-	httpClient  *http.Client
-	userAgent   string
+	baseURL    *url.URL
+	apiKey     string
+	httpClient *http.Client
+	userAgent  string
 }
 
 type apiError struct {
@@ -38,10 +36,8 @@ func (e *apiError) Error() string {
 }
 
 type e2bClientConfig struct {
-	APIKey      string
-	AccessToken string
-	TeamID      string
-	Version     string
+	APIKey  string
+	Version string
 }
 
 func newE2BClientWithConfig(rawBaseURL string, config e2bClientConfig) (*e2bClient, error) {
@@ -59,10 +55,8 @@ func newE2BClientWithConfig(rawBaseURL string, config e2bClientConfig) (*e2bClie
 	}
 
 	return &e2bClient{
-		baseURL:     parsed,
-		apiKey:      strings.TrimSpace(config.APIKey),
-		accessToken: strings.TrimSpace(config.AccessToken),
-		teamID:      strings.TrimSpace(config.TeamID),
+		baseURL: parsed,
+		apiKey:  strings.TrimSpace(config.APIKey),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -73,9 +67,7 @@ func newE2BClientWithConfig(rawBaseURL string, config e2bClientConfig) (*e2bClie
 type requestAuthMode string
 
 const (
-	requestAuthDefault    requestAuthMode = "default"
-	requestAuthBearer     requestAuthMode = "bearer"
-	requestAuthTeamBearer requestAuthMode = "team_bearer"
+	requestAuthDefault requestAuthMode = "default"
 )
 
 func (c *e2bClient) newRequestWithAuth(ctx context.Context, method string, path string, query url.Values, body any, authMode requestAuthMode) (*http.Request, error) {
@@ -116,31 +108,8 @@ func (c *e2bClient) setAuthHeaders(req *http.Request, authMode requestAuthMode) 
 			req.Header.Set("X-API-Key", c.apiKey)
 			return nil
 		}
-		if c.accessToken != "" {
-			req.Header.Set("Authorization", "Bearer "+c.accessToken)
-			if c.teamID != "" {
-				req.Header.Set("X-Team-ID", c.teamID)
-			}
-			return nil
-		}
 
-		return fmt.Errorf("missing E2B authentication token")
-	case requestAuthBearer:
-		if c.accessToken == "" {
-			return fmt.Errorf("missing E2B access token; set access_token or E2B_ACCESS_TOKEN")
-		}
-		req.Header.Set("Authorization", "Bearer "+c.accessToken)
-		return nil
-	case requestAuthTeamBearer:
-		if c.accessToken == "" {
-			return fmt.Errorf("missing E2B access token; set access_token or E2B_ACCESS_TOKEN")
-		}
-		if c.teamID == "" {
-			return fmt.Errorf("missing E2B team ID; set team_id or E2B_TEAM_ID")
-		}
-		req.Header.Set("Authorization", "Bearer "+c.accessToken)
-		req.Header.Set("X-Team-ID", c.teamID)
-		return nil
+		return fmt.Errorf("missing E2B API key")
 	default:
 		return fmt.Errorf("unknown E2B request auth mode %q", authMode)
 	}
