@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -155,6 +156,6 @@ func (c *e2bClient) doWithAuth(ctx context.Context, method string, path string, 
 }
 
 func isNotFound(err error) bool {
-	apiErr, ok := err.(*apiError)
-	return ok && apiErr.StatusCode == http.StatusNotFound
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
